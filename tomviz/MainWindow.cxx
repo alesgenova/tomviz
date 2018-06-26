@@ -593,7 +593,7 @@ void MainWindow::operatorResultChanged(OperatorResult* res)
 {
   if (res) {
     m_ui->propertiesPanelStackedWidget->setCurrentWidget(
-    m_ui->operatorResultPropertiesScrollArea);
+      m_ui->operatorResultPropertiesScrollArea);
   }
 }
 
