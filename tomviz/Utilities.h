@@ -36,6 +36,7 @@ class pqAnimationScene;
 
 class vtkDiscretizableColorTransferFunction;
 class vtkImageSliceMapper;
+class vtkMolecule;
 class vtkRenderer;
 class vtkSMProxyLocator;
 class vtkSMRenderViewProxy;
@@ -210,6 +211,7 @@ bool setProperties(const QJsonObject& props, vtkSMProxy* proxy);
 bool setProperty(const QJsonValue& value, vtkSMProperty* prop, int index = 0);
 bool setProperty(const QJsonArray& array, vtkSMProperty* prop);
 
+bool moleculeToFile(vtkMolecule* molecule);
 extern double offWhite[3];
 } // namespace tomviz
 
