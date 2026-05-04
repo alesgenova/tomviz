@@ -10,6 +10,7 @@
 #include <vtkDiscretizableColorTransferFunction.h>
 #include <vtkDoubleArray.h>
 #include <vtkFieldData.h>
+#include <vtkTypeInt32Array.h>
 #include <vtkImageData.h>
 #include <vtkPointData.h>
 #include <vtkStringArray.h>
@@ -483,6 +484,56 @@ QVector<double> VolumeData::getTiltAngles(vtkImageData* image)
   result.resize(arr->GetNumberOfTuples());
   for (vtkIdType i = 0; i < arr->GetNumberOfTuples(); ++i) {
     result[i] = arr->GetComponent(i, 0);
+  }
+  return result;
+}
+
+bool VolumeData::hasScanIds() const
+{
+  return hasScanIds(m_imageData);
+}
+
+QVector<int> VolumeData::scanIds() const
+{
+  return getScanIds(m_imageData);
+}
+
+void VolumeData::setScanIds(const QVector<int>& ids)
+{
+  if (!m_imageData) {
+    return;
+  }
+  vtkNew<vtkTypeInt32Array> array;
+  array->SetName("scan_ids");
+  array->SetNumberOfTuples(ids.size());
+  for (int i = 0; i < ids.size(); ++i) {
+    array->SetValue(i, ids[i]);
+  }
+  m_imageData->GetFieldData()->AddArray(array);
+}
+
+bool VolumeData::hasScanIds(vtkImageData* image)
+{
+  if (!image || !image->GetFieldData()) {
+    return false;
+  }
+  auto* arr = image->GetFieldData()->GetArray("scan_ids");
+  return arr != nullptr && arr->GetNumberOfTuples() > 0;
+}
+
+QVector<int> VolumeData::getScanIds(vtkImageData* image)
+{
+  QVector<int> result;
+  if (!image || !image->GetFieldData()) {
+    return result;
+  }
+  auto* arr = image->GetFieldData()->GetArray("scan_ids");
+  if (!arr) {
+    return result;
+  }
+  result.resize(arr->GetNumberOfTuples());
+  for (vtkIdType i = 0; i < arr->GetNumberOfTuples(); ++i) {
+    result[i] = static_cast<int>(arr->GetComponent(i, 0));
   }
   return result;
 }

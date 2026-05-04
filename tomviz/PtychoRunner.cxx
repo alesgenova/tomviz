@@ -291,8 +291,8 @@ public:
         qCritical() << "Failed to load file:" << filePath;
         return;
       }
-      // TODO: store scanIDs as node property once SourceNode replaces
-      // DataSource fully. For now this metadata is not preserved.
+      // scan_ids are written into the EMD files by ptycho.py and read
+      // back by EmdFormat::read, so they flow through automatically.
     }
 
     // Automatically update camera to BNL convention

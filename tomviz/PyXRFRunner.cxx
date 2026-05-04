@@ -711,6 +711,11 @@ public:
     rootPointData->SetActiveScalars(firstName.toStdString().c_str());
     source->setLabel("Extracted Elements");
 
+    // Store scan IDs on the VolumeData so they persist through EMD I/O
+    if (!scanIDs.isEmpty()) {
+      vol->setScanIds(scanIDs);
+    }
+
     // Write this to an EMD format
     QString saveFile =
       QFileInfo(sortedList[0])

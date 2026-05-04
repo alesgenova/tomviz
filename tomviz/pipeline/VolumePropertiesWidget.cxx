@@ -840,14 +840,30 @@ void VolumePropertiesWidget::updateTiltAnglesSection()
   m_saveTiltAnglesButton->show();
 
   QVector<double> tiltAngles = vol->tiltAngles();
+  QVector<int> scanIds = vol->scanIds();
+  bool hasScanIds = scanIds.size() == tiltAngles.size() && !scanIds.isEmpty();
+
   m_tiltAnglesTable->setRowCount(tiltAngles.size());
-  m_tiltAnglesTable->setColumnCount(1);
+  int numCols = hasScanIds ? 2 : 1;
+  m_tiltAnglesTable->setColumnCount(numCols);
+  int tiltCol = hasScanIds ? 1 : 0;
   for (int i = 0; i < tiltAngles.size(); ++i) {
+    if (hasScanIds) {
+      auto* scanItem = new QTableWidgetItem();
+      scanItem->setData(Qt::DisplayRole, QString::number(scanIds[i]));
+      scanItem->setFlags(scanItem->flags() & ~Qt::ItemIsEditable);
+      m_tiltAnglesTable->setItem(i, 0, scanItem);
+    }
     auto* item = new QTableWidgetItem();
     item->setData(Qt::DisplayRole, QString::number(tiltAngles[i]));
-    m_tiltAnglesTable->setItem(i, 0, item);
+    m_tiltAnglesTable->setItem(i, tiltCol, item);
   }
-  m_tiltAnglesTable->setHorizontalHeaderLabels({ "Tilt Angle" });
+  QStringList headers;
+  if (hasScanIds) {
+    headers << "Scan ID";
+  }
+  headers << "Tilt Angle";
+  m_tiltAnglesTable->setHorizontalHeaderLabels(headers);
   m_tiltAnglesTable->horizontalHeader()->setStretchLastSection(true);
 
   connect(m_tiltAnglesTable, &QTableWidget::cellChanged, this,
@@ -856,11 +872,15 @@ void VolumePropertiesWidget::updateTiltAnglesSection()
 
 void VolumePropertiesWidget::onTiltAnglesModified(int row, int column)
 {
-  if (column != 0) {
-    return;
-  }
   auto* vol = volumeData();
   if (!vol) {
+    return;
+  }
+  // Tilt angles are in the last column (column 1 when scan IDs present,
+  // column 0 otherwise).
+  int tiltCol = (vol->hasScanIds() && vol->scanIds().size() ==
+                 vol->tiltAngles().size()) ? 1 : 0;
+  if (column != tiltCol) {
     return;
   }
   auto* item = m_tiltAnglesTable->item(row, column);

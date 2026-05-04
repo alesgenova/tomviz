@@ -24,6 +24,9 @@ public:
   void setTiltAngles(const QMap<size_t, double>& angles);
   QMap<size_t, double> tiltAnglesMap() const;
 
+  void setScanIds(const QVector<int>& ids);
+  QVector<int> scanIds() const;
+
   bool hasPropertiesWidget() const override;
   bool propertiesWidgetNeedsInput() const override;
   EditTransformWidget* createPropertiesWidget(QWidget* parent) override;
@@ -37,6 +40,7 @@ protected:
 
 private:
   QMap<size_t, double> m_tiltAngles;
+  QVector<int> m_scanIds;
 };
 
 } // namespace pipeline

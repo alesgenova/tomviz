@@ -14,6 +14,7 @@
 
 #include <QClipboard>
 #include <QDoubleSpinBox>
+#include <QJsonArray>
 #include <QFileDialog>
 #include <QGridLayout>
 #include <QGuiApplication>
@@ -225,6 +226,16 @@ public:
         tiltAngles[i] = item->data(Qt::DisplayRole).toDouble();
       }
       m_op->setTiltAngles(tiltAngles);
+
+      if (m_hasScanIDs) {
+        QVector<int> scanIds;
+        scanIds.reserve(m_tableWidget->rowCount());
+        for (int i = 0; i < m_tableWidget->rowCount(); ++i) {
+          QTableWidgetItem* item = m_tableWidget->item(i, 0);
+          scanIds.push_back(item->data(Qt::DisplayRole).toInt());
+        }
+        m_op->setScanIds(scanIds);
+      }
     }
   }
 
@@ -433,6 +444,16 @@ QMap<size_t, double> SetTiltAnglesTransform::tiltAnglesMap() const
   return m_tiltAngles;
 }
 
+void SetTiltAnglesTransform::setScanIds(const QVector<int>& ids)
+{
+  m_scanIds = ids;
+}
+
+QVector<int> SetTiltAnglesTransform::scanIds() const
+{
+  return m_scanIds;
+}
+
 bool SetTiltAnglesTransform::hasPropertiesWidget() const
 {
   return true;
@@ -474,6 +495,14 @@ QJsonObject SetTiltAnglesTransform::serialize() const
     angles[QString::number(static_cast<qulonglong>(it.key()))] = it.value();
   }
   json["angles"] = angles;
+
+  if (!m_scanIds.isEmpty()) {
+    QJsonArray scanIdsArray;
+    for (int id : m_scanIds) {
+      scanIdsArray.append(id);
+    }
+    json["scanIds"] = scanIdsArray;
+  }
   return json;
 }
 
@@ -489,6 +518,16 @@ bool SetTiltAnglesTransform::deserialize(const QJsonObject& json)
       it.value().toDouble();
   }
   setTiltAngles(angles);
+
+  if (json.contains("scanIds")) {
+    QVector<int> ids;
+    auto arr = json.value("scanIds").toArray();
+    ids.reserve(arr.size());
+    for (const auto& v : arr) {
+      ids.push_back(v.toInt());
+    }
+    setScanIds(ids);
+  }
   return true;
 }
 
@@ -533,6 +572,10 @@ QMap<QString, PortData> SetTiltAnglesTransform::transform(
   output->setLabel(vol->label());
   output->setUnits(vol->units());
   output->setTiltAngles(angles);
+
+  if (!m_scanIds.isEmpty()) {
+    output->setScanIds(m_scanIds);
+  }
 
   outputs["output"] = PortData(std::any(output), PortType::TiltSeries);
   return outputs;

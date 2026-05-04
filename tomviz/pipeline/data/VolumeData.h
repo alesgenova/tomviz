@@ -159,6 +159,15 @@ public:
   static bool hasTiltAngles(vtkImageData* image);
   static QVector<double> getTiltAngles(vtkImageData* image);
 
+  // -- Scan ID accessors --
+
+  bool hasScanIds() const;
+  QVector<int> scanIds() const;
+  void setScanIds(const QVector<int>& ids);
+
+  static bool hasScanIds(vtkImageData* image);
+  static QVector<int> getScanIds(vtkImageData* image);
+
   // -- Time series support --
 
   struct TimeStep {

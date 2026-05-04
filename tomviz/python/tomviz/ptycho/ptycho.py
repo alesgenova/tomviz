@@ -355,6 +355,8 @@ def load_stack_ptycho(version_list: list[str],
     for filename, array_names in datasets.items():
         dataset = Dataset({key: arrays[key] for key in array_names})
         dataset.tilt_angles = np.array([x[2] for x in currentsidlist])
+        dataset.scan_ids = np.array([x[1] for x in currentsidlist],
+                                    dtype=np.int32)
         dataset.tilt_axis = 2
         if filename == 'ptycho_object.emd' and has_pixel_sizes:
             # Also set the pixel sizes if they are available
