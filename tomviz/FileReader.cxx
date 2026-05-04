@@ -149,8 +149,8 @@ ReadResult readImageData(const QStringList& fileNames,
     return result;
   }
 
-  // .h5 — DataExchange / FXI / generic HDF5.
-  if (suffix == "h5") {
+  // .hspy / .h5 — DataExchange / FXI / generic HDF5.
+  if (suffix == "hspy" || suffix == "h5") {
     QVariantMap hdf5Options = hdf5OptionsFromJson(options);
     const auto fnStd = fileName.toStdString();
     if (GenericHDF5Format::isDataExchange(fnStd)) {
