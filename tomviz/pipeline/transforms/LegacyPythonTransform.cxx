@@ -149,6 +149,20 @@ void LegacyPythonTransform::setJSONDescription(const QString& json)
 {
   m_jsonDescription = json;
   parseJSON();
+
+  // If the JSON carries a tomviz_pipeline_env key and no executor is set,
+  // default to External execution with that environment.
+  if (!nodeExecutor() && !json.isEmpty()) {
+    QJsonDocument descDoc = QJsonDocument::fromJson(json.toUtf8());
+    if (descDoc.isObject()) {
+      auto envPath =
+        descDoc.object().value(QStringLiteral("tomviz_pipeline_env"))
+          .toString();
+      if (!envPath.isEmpty()) {
+        setNodeExecutor(new ExternalNodeExecutor(envPath));
+      }
+    }
+  }
 }
 
 QString LegacyPythonTransform::jsonDescription() const
