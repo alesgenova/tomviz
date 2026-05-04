@@ -174,7 +174,8 @@ VolumePropertiesWidget::VolumePropertiesWidget(QWidget* parent)
   // --- Scalars Table ---
   m_scalarsTable = new QTableView(this);
   m_scalarsTable->setModel(m_scalarsModel);
-  m_scalarsTable->setMaximumHeight(150);
+  m_scalarsTable->setMinimumHeight(125);
+  m_scalarsTable->setMaximumHeight(200);
   mainLayout->addWidget(m_scalarsTable);
 
   // --- Units and Size section ---
@@ -282,7 +283,8 @@ VolumePropertiesWidget::VolumePropertiesWidget(QWidget* parent)
   m_tiltAnglesHeader = createSectionHeader("Tilt Angles", this);
   mainLayout->addWidget(m_tiltAnglesHeader);
   m_tiltAnglesTable = new QTableWidget(this);
-  m_tiltAnglesTable->setMaximumHeight(200);
+  m_tiltAnglesTable->setMinimumHeight(125);
+  m_tiltAnglesTable->setMaximumHeight(250);
   m_tiltAnglesTable->installEventFilter(this);
   mainLayout->addWidget(m_tiltAnglesTable);
   m_saveTiltAnglesButton = new QPushButton("Save Tilt Angles...", this);
