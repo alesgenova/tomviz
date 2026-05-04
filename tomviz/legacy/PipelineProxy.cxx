@@ -389,6 +389,11 @@ void PipelineProxy::load(const std::string& state,
 
 std::string PipelineProxy::modulesJson()
 {
+  auto* view = ActiveObjects::instance().activeView();
+  if (!view) {
+    return "{}";
+  }
+
   vtkNew<vtkImageData> data;
   data->SetDimensions(2, 2, 2);
   data->AllocateScalars(VTK_INT, 1);
@@ -397,8 +402,10 @@ std::string PipelineProxy::modulesJson()
   QJsonObject modules;
 
   for (auto t : ModuleFactory::moduleTypes()) {
-    auto module = ModuleFactory::createModule(
-      t, dataSource, ActiveObjects::instance().activeView());
+    auto module = ModuleFactory::createModule(t, dataSource, view);
+    if (!module) {
+      continue;
+    }
     module->setVisibility(false);
     QFileInfo info(QApplication::applicationDirPath());
     auto state = module->serialize();
