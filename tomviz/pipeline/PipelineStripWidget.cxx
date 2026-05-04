@@ -1787,7 +1787,6 @@ void PipelineStripWidget::computeLinkGeometries()
 
   for (int ni = 0; ni < nodeOrder.size(); ++ni) {
     auto* node = nodeOrder[ni];
-    Node* nextNode = (ni + 1 < nodeOrder.size()) ? nodeOrder[ni + 1] : nullptr;
     Node* prevNode = (ni > 0) ? nodeOrder[ni - 1] : nullptr;
 
     // Output ports: a port needs a gutter lane if any of its links are

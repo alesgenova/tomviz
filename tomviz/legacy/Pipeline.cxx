@@ -626,10 +626,8 @@ void Pipeline::addDefaultModules(DataSource* dataSource)
     return;
   }
 
-  Module* module = nullptr;
   foreach (QString name, defaultModules) {
-    module =
-      ModuleManager::instance().createAndAddModule(name, dataSource, view);
+    ModuleManager::instance().createAndAddModule(name, dataSource, view);
   }
   // LEGACY STUB: setActiveModule() removed from ActiveObjects
   ActiveObjects::instance().setActiveNode(nullptr);
