@@ -104,7 +104,6 @@
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
-#include <QFutureWatcher>
 #include <QIcon>
 #include <QKeySequence>
 #include <QMessageBox>
@@ -117,7 +116,6 @@
 #include <QTimer>
 #include <QToolButton>
 #include <QUrl>
-#include <QtConcurrent>
 
 namespace {
 QString getAutosaveFile()
@@ -923,51 +921,42 @@ MainWindow::MainWindow(QWidget* parent, Qt::WindowFlags flags)
   FileFormatManager::instance().prepopulatePythonReaders();
   FileFormatManager::instance().prepopulatePythonWriters();
 
-  // Async initialize python
-  statusBar()->showMessage("Initializing python...");
-  auto pythonWatcher = new QFutureWatcher<std::vector<OperatorDescription>>;
-  connect(pythonWatcher, &QFutureWatcherBase::finished, this,
-          [this, pyXRFRunner, ptychoRunner, pythonWatcher, dataBrokerSaveReaction]() {
-            m_ui->actionAcquisition->setEnabled(true);
-            m_ui->actionPassiveAcquisition->setEnabled(true);
-            registerCustomOperators(pythonWatcher->result());
-            // Check if we have DataBroker and enable menu if we do
-            auto dataBroker = new DataBroker(this);
-            m_ui->actionImportFromDataBroker->setEnabled(
-              dataBroker->installed());
-            m_ui->actionExportToDataBroker->setEnabled(
-              dataBroker->installed() &&
-              ActiveObjects::instance().activeNode() != nullptr);
-            dataBrokerSaveReaction->setDataBrokerInstalled(
-              dataBroker->installed());
-            dataBroker->deleteLater();
+  // Initialize python synchronously (splash screen stays up until done)
+  auto operators = initPython();
 
-            bool installed = pyXRFRunner->isInstalled();
-            m_ui->actionPyXRFWorkflow->setEnabled(installed);
-            if (!installed) {
-              // Grab the import error and show it in the tooltip
-              QString tooltip = "Failed to import required modules. "
-                                "Error message was:\n\n" +
-                                pyXRFRunner->importError();
-              m_ui->actionPyXRFWorkflow->setToolTip(tooltip);
-            }
+  m_ui->actionAcquisition->setEnabled(true);
+  m_ui->actionPassiveAcquisition->setEnabled(true);
+  registerCustomOperators(operators);
 
-            installed = ptychoRunner->isInstalled();
-            m_ui->actionPtychoWorkflow->setEnabled(installed);
-            if (!installed) {
-              // Grab the import error and show it in the tooltip
-              QString tooltip = "Failed to import required modules. "
-                                "Error message was:\n\n" +
-                                ptychoRunner->importError();
-              m_ui->actionPtychoWorkflow->setToolTip(tooltip);
-            }
+  auto dataBroker = new DataBroker(this);
+  m_ui->actionImportFromDataBroker->setEnabled(dataBroker->installed());
+  m_ui->actionExportToDataBroker->setEnabled(
+    dataBroker->installed() &&
+    ActiveObjects::instance().activeNode() != nullptr);
+  dataBrokerSaveReaction->setDataBrokerInstalled(dataBroker->installed());
+  dataBroker->deleteLater();
 
-            delete pythonWatcher;
-            statusBar()->showMessage("Initialization complete", 1500);
-          });
+  {
+    bool installed = pyXRFRunner->isInstalled();
+    m_ui->actionPyXRFWorkflow->setEnabled(installed);
+    if (!installed) {
+      QString tooltip = "Failed to import required modules. "
+                        "Error message was:\n\n" +
+                        pyXRFRunner->importError();
+      m_ui->actionPyXRFWorkflow->setToolTip(tooltip);
+    }
+  }
 
-  auto pythonFuture = QtConcurrent::run(initPython);
-  pythonWatcher->setFuture(pythonFuture);
+  {
+    bool installed = ptychoRunner->isInstalled();
+    m_ui->actionPtychoWorkflow->setEnabled(installed);
+    if (!installed) {
+      QString tooltip = "Failed to import required modules. "
+                        "Error message was:\n\n" +
+                        ptychoRunner->importError();
+      m_ui->actionPtychoWorkflow->setToolTip(tooltip);
+    }
+  }
 
   // Snapshot existing dock widgets before loading plugin dock widgets
   auto currentDocks = findChildren<QDockWidget*>();
