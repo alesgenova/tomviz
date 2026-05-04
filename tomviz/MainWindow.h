@@ -57,6 +57,8 @@ public:
 protected:
   void showEvent(QShowEvent* event) override;
   void closeEvent(QCloseEvent* event) override;
+  void dragEnterEvent(QDragEnterEvent* event) override;
+  void dropEvent(QDropEvent* event) override;
 
   /// Check the system at runtime to see for an appropriate OpenGL version.
   bool checkOpenGL();

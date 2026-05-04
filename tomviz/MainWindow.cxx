@@ -98,6 +98,9 @@
 #include <QAction>
 #include <QCloseEvent>
 #include <QDebug>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QMimeData>
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -169,6 +172,7 @@ MainWindow::MainWindow(QWidget* parent, Qt::WindowFlags flags)
 
   // checkOpenGL();
   m_ui->setupUi(this);
+  setAcceptDrops(true);
   // Force full messages to be shown
   m_ui->outputWidget->showFullMessages(true);
   m_timer = new QTimer(this);
@@ -1168,6 +1172,30 @@ void MainWindow::showEvent(QShowEvent* e)
     m_isFirstShow = false;
     QTimer::singleShot(1, this, &MainWindow::onFirstWindowShow);
   }
+}
+
+void MainWindow::dragEnterEvent(QDragEnterEvent* e)
+{
+  if (e->mimeData()->hasUrls()) {
+    e->acceptProposedAction();
+  }
+}
+
+void MainWindow::dropEvent(QDropEvent* e)
+{
+  for (const auto& url : e->mimeData()->urls()) {
+    if (!url.isLocalFile()) {
+      continue;
+    }
+    QString path = url.toLocalFile();
+    QString suffix = QFileInfo(path).suffix().toLower();
+    if (suffix == "tvsm" || suffix == "tvh5") {
+      SaveLoadStateReaction::loadState(path);
+    } else {
+      LoadDataReaction::loadData(path);
+    }
+  }
+  e->acceptProposedAction();
 }
 
 void MainWindow::closeEvent(QCloseEvent* e)
