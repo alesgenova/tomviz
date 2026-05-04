@@ -112,16 +112,11 @@ bool SaveLoadStateReaction::loadState(const QString& filename)
     }
   }
 
-  // Ask whether to run the saved pipeline after loading (matches the
-  // legacy prompt; the choice is remembered via
-  // PipelineSettings.AutoExecuteOnStateLoad when the user ticks
-  // "Don't ask again").
-  bool executePipelines = automaticallyExecutePipelines();
-
   bool success = false;
   if (filename.endsWith(".tvh5")) {
-    success = loadTvh5(filename, executePipelines);
+    success = loadTvh5(filename, /*executePipelines=*/true);
   } else if (filename.endsWith(".tvsm")) {
+    bool executePipelines = automaticallyExecutePipelines();
     success = loadTvsm(filename, executePipelines);
   } else {
     qCritical() << "Unknown state format for file: " << filename;
