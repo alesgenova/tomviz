@@ -8,9 +8,12 @@
 #include "TransformUtils.h"
 
 #include "pipeline/InputPort.h"
+#include "pipeline/Link.h"
 #include "pipeline/OutputPort.h"
 #include "pipeline/Pipeline.h"
+#include "pipeline/SinkGroupNode.h"
 #include "pipeline/TransformNode.h"
+#include "pipeline/sinks/SliceSink.h"
 #include "pipeline/transforms/LegacyPythonTransform.h"
 
 #include <QApplication>
@@ -134,8 +137,36 @@ OperatorPython* AddPythonTransformReaction::addExpression(DataSource*)
   if (hasJson) {
     transform->setJSONDescription(jsonSource);
 
-    // If the transform has parameters (from JSON), show properties after
-    // insertion. For now, just insert it directly.
+    if (scriptLabel == "Auto Tilt Image Align (PyStackReg)") {
+      // Default ref_slice_index to the current slice from any connected
+      // SliceSink (may be inside a SinkGroupNode).
+      auto* tipPort = ActiveObjects::instance().activeTipOutputPort();
+      if (tipPort) {
+        int defaultSliceIdx = 0;
+        for (auto* link : tipPort->links()) {
+          auto* node = link->to()->node();
+          // Check direct SliceSink connection
+          if (auto* sink = qobject_cast<pipeline::SliceSink*>(node)) {
+            defaultSliceIdx = std::max(sink->slice(), 0);
+            break;
+          }
+          // Check inside SinkGroupNode
+          if (auto* group = qobject_cast<pipeline::SinkGroupNode*>(node)) {
+            for (auto* s : group->sinks()) {
+              if (auto* sink = qobject_cast<pipeline::SliceSink*>(s)) {
+                defaultSliceIdx = std::max(sink->slice(), 0);
+                break;
+              }
+            }
+            if (defaultSliceIdx > 0) {
+              break;
+            }
+          }
+        }
+        transform->setParameter("ref_slice_index", defaultSliceIdx);
+      }
+    }
+
     insertTransformIntoPipeline(transform);
   } else {
     // Simple script with no JSON, no custom UI — insert directly
