@@ -4,7 +4,7 @@
 #ifndef tomvizPtychoRunner_h
 #define tomvizPtychoRunner_h
 
-#include <QDialog>
+#include <QObject>
 #include <QScopedPointer>
 
 namespace tomviz {

@@ -20,7 +20,7 @@ public:
   virtual void show();
 
   QString ptychoDirectory() const;
-  QString outputDirectory() const;
+  QString outputInfoFile() const;
   bool rotateDatasets() const;
 
   QList<long> selectedSids() const;

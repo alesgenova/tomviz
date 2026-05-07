@@ -101,9 +101,9 @@
     </widget>
    </item>
    <item row="11" column="2">
-    <widget class="QPushButton" name="selectOutputDirectory">
+    <widget class="QPushButton" name="selectOutputInfoFile">
      <property name="toolTip">
-      <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;The directory where the output files will be written. If one is not specified, the Ptycho directory will be used.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+      <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Optional path to write a summary text file with scan IDs, angles, and versions. Leave empty to skip.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
      </property>
      <property name="text">
       <string>Select</string>
@@ -131,15 +131,15 @@
     </widget>
    </item>
    <item row="11" column="0">
-    <widget class="QLabel" name="outputDirectoryLabel">
+    <widget class="QLabel" name="outputInfoFileLabel">
      <property name="toolTip">
-      <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;The directory where the output files will be written. If one is not specified, the Ptycho directory will be used.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+      <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Optional path to write a summary text file with scan IDs, angles, and versions. Leave empty to skip.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
      </property>
      <property name="text">
-      <string>Output Directory:</string>
+      <string>Output Info File:</string>
      </property>
      <property name="buddy">
-      <cstring>outputDirectory</cstring>
+      <cstring>outputInfoFile</cstring>
      </property>
     </widget>
    </item>
@@ -177,9 +177,9 @@
     </widget>
    </item>
    <item row="11" column="1">
-    <widget class="QLineEdit" name="outputDirectory">
+    <widget class="QLineEdit" name="outputInfoFile">
      <property name="toolTip">
-      <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;The directory where the output files will be written. If one is not specified, the Ptycho directory will be used.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+      <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Optional path to write a summary text file with scan IDs, angles, and versions. Leave empty to skip.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
      </property>
     </widget>
    </item>
@@ -226,8 +226,8 @@
   <tabstop>filterSIDsString</tabstop>
   <tabstop>loadSidsFromTxt</tabstop>
   <tabstop>table</tabstop>
-  <tabstop>outputDirectory</tabstop>
-  <tabstop>selectOutputDirectory</tabstop>
+  <tabstop>outputInfoFile</tabstop>
+  <tabstop>selectOutputInfoFile</tabstop>
   <tabstop>rotateDatasets</tabstop>
  </tabstops>
  <resources/>

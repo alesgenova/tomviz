@@ -86,8 +86,8 @@ public:
     connect(ui.loadSidsFromTxt, &QPushButton::clicked, this,
             &Internal::onLoadSidsFromTxtClicked);
 
-    connect(ui.selectOutputDirectory, &QPushButton::clicked, this,
-            &Internal::selectOutputDirectory);
+    connect(ui.selectOutputInfoFile, &QPushButton::clicked, this,
+            &Internal::selectOutputInfoFile);
 
     connect(ui.buttonBox, &QDialogButtonBox::accepted, this,
             &Internal::accepted);
@@ -217,21 +217,6 @@ public:
         useList[idx] = false;
         updateTable();
       }
-    }
-
-    if (!QDir(outputDirectory()).exists()) {
-      // First ask if the user wants to make it.
-      QString title = "Directory does not exist";
-      auto text = QString("Output directory \"%1\" does not exist. Create it?")
-                    .arg(outputDirectory());
-      if (QMessageBox::question(parent, title, text) == QMessageBox::Yes) {
-        QDir().mkpath(outputDirectory());
-      }
-    }
-
-    if (outputDirectory().isEmpty() || !QDir(outputDirectory()).exists()) {
-      reason = "Output directory does not exist: " + outputDirectory();
-      return false;
     }
 
     return true;
@@ -364,7 +349,7 @@ public:
     return "";
   }
 
-  QString defaultOutputDirectory() { return QDir::home().filePath("ptycho_output"); }
+  QString defaultOutputInfoFile() { return ""; }
 
   void readSettings()
   {
@@ -383,8 +368,8 @@ public:
     setCsvFile(settings->value("loadFromCSVFile", "").toString());
     setFilterSIDsString(settings->value("filterSIDsString", "").toString());
 
-    setOutputDirectory(
-      settings->value("outputDirectory", defaultOutputDirectory()).toString());
+    setOutputInfoFile(
+      settings->value("outputInfoFile", defaultOutputInfoFile()).toString());
     setRotateDatasets(
       settings->value("rotateDatasets", true).toBool());
 
@@ -448,7 +433,7 @@ public:
 
     settings->setValue("filterSIDsString", filterSIDsString());
 
-    settings->setValue("outputDirectory", outputDirectory());
+    settings->setValue("outputInfoFile", outputInfoFile());
     settings->setValue("rotateDatasets", rotateDatasets());
 
     // Save out our lists
@@ -835,16 +820,20 @@ public:
     updateTable();
   }
 
-  void selectOutputDirectory()
+  void selectOutputInfoFile()
   {
-    QString caption = "Select output directory";
-    auto dir = QFileDialog::getExistingDirectory(parent.data(), caption,
-                                                 outputDirectory());
-    if (dir.isEmpty()) {
+    QString caption = "Select output info file";
+    auto startPath = outputInfoFile();
+    if (startPath.isEmpty()) {
+      startPath = ptychoDirectory();
+    }
+    auto file = QFileDialog::getSaveFileName(
+      parent.data(), caption, startPath, "Text files (*.txt)");
+    if (file.isEmpty()) {
       return;
     }
 
-    setOutputDirectory(dir);
+    setOutputInfoFile(file);
   }
 
   void clearTable()
@@ -878,9 +867,9 @@ public:
 
   void setFilterSIDsString(QString s) const { ui.filterSIDsString->setText(s); }
 
-  QString outputDirectory() const { return ui.outputDirectory->text(); }
+  QString outputInfoFile() const { return ui.outputInfoFile->text(); }
 
-  void setOutputDirectory(QString s) { ui.outputDirectory->setText(s); }
+  void setOutputInfoFile(QString s) { ui.outputInfoFile->setText(s); }
 
   bool rotateDatasets() const { return ui.rotateDatasets->isChecked(); }
 
@@ -920,9 +909,9 @@ QList<double> PtychoDialog::selectedAngles() const
   return m_internal->selectedAngles();
 }
 
-QString PtychoDialog::outputDirectory() const
+QString PtychoDialog::outputInfoFile() const
 {
-  return m_internal->outputDirectory();
+  return m_internal->outputInfoFile();
 }
 
 bool PtychoDialog::rotateDatasets() const

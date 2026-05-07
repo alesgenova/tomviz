@@ -630,6 +630,7 @@ set(python_files
   ClearVolume.py
   ConstantDataset.py
   RandomParticles.py
+  PtychoSource.py
   GenerateTiltSeries.py
   SetNegativeVoxelsToZero.py
   ShiftTiltSeriesRandomly.py
@@ -721,6 +722,7 @@ set(json_files
   InvertData.json
   ConstantDataset.json
   RandomParticles.json
+  PtychoSource.json
   STEM_probe.json
   )
 
