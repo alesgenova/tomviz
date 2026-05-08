@@ -6,7 +6,7 @@
 
 #include "ModuleAnimation.h"
 
-#include "legacy/modules/ModuleSlice.h"
+#include "pipeline/sinks/SliceSink.h"
 
 namespace tomviz {
 
@@ -18,22 +18,24 @@ public:
   double startValue = 0;
   double stopValue = 0;
 
-  SliceAnimation(ModuleSlice* module, double start, double stop)
-    : ModuleAnimation(module), startValue(start), stopValue(stop)
+  SliceAnimation(pipeline::SliceSink* sink, double start, double stop)
+    : ModuleAnimation(sink), startValue(start), stopValue(stop)
   {
   }
 
-  ModuleSlice* module() { return qobject_cast<ModuleSlice*>(baseModule); }
+  pipeline::SliceSink* sink()
+  {
+    return qobject_cast<pipeline::SliceSink*>(baseNode.data());
+  }
 
   void onTimeChanged() override
   {
-    if (!timeKeeper()) {
+    if (!timeKeeper() || !sink()) {
       return;
     }
 
-    // Simple interpolation
     double value = (stopValue - startValue) * progress() + startValue;
-    module()->onSliceChanged(value);
+    sink()->setSlice(static_cast<int>(value));
   }
 };
 

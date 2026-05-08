@@ -6,7 +6,7 @@
 
 #include "ModuleAnimation.h"
 
-#include "legacy/modules/ModuleContour.h"
+#include "pipeline/sinks/ContourSink.h"
 
 namespace tomviz {
 
@@ -18,22 +18,24 @@ public:
   double startValue = 0;
   double stopValue = 0;
 
-  ContourAnimation(ModuleContour* module, double start, double stop)
-    : ModuleAnimation(module), startValue(start), stopValue(stop)
+  ContourAnimation(pipeline::ContourSink* sink, double start, double stop)
+    : ModuleAnimation(sink), startValue(start), stopValue(stop)
   {
   }
 
-  ModuleContour* module() { return qobject_cast<ModuleContour*>(baseModule); }
+  pipeline::ContourSink* sink()
+  {
+    return qobject_cast<pipeline::ContourSink*>(baseNode.data());
+  }
 
   void onTimeChanged() override
   {
-    if (!timeKeeper()) {
+    if (!timeKeeper() || !sink()) {
       return;
     }
 
-    // Simple interpolation
     double value = (stopValue - startValue) * progress() + startValue;
-    module()->setIsoValue(value);
+    sink()->setIsoValue(value);
   }
 };
 

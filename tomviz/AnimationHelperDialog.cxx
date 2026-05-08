@@ -6,10 +6,13 @@
 
 #include "ActiveObjects.h"
 #include "ContourAnimation.h"
-#include "legacy/DataSource.h"
-#include "legacy/modules/ModuleManager.h"
 #include "SliceAnimation.h"
 #include "Utilities.h"
+
+#include "pipeline/Pipeline.h"
+#include "pipeline/SourceNode.h"
+#include "pipeline/sinks/ContourSink.h"
+#include "pipeline/sinks/SliceSink.h"
 
 #include <pqAnimationCue.h>
 #include <pqAnimationManager.h>
@@ -25,9 +28,27 @@
 #include <QSignalBlocker>
 #include <QTimer>
 
-#include <QDebug>
-
 namespace tomviz {
+
+namespace {
+
+pipeline::SourceNode* findUpstreamSource(pipeline::Node* node)
+{
+  if (!node) {
+    return nullptr;
+  }
+  if (auto* src = qobject_cast<pipeline::SourceNode*>(node)) {
+    return src;
+  }
+  for (auto* up : node->upstreamNodes()) {
+    if (auto* src = findUpstreamSource(up)) {
+      return src;
+    }
+  }
+  return nullptr;
+}
+
+} // anonymous namespace
 
 class AnimationHelperDialog::Internal : public QObject
 {
@@ -39,10 +60,8 @@ public:
 
   Internal(AnimationHelperDialog* p) : QObject(p), parent(p)
   {
-    // Must call setupUi() before using p in any way
     ui.setupUi(p);
 
-    // We will change tabs automatically
     ui.modulesTabWidget->tabBar()->hide();
 
     updateGui();
@@ -71,18 +90,18 @@ public:
               }
             });
 
-    // Modules
-    connect(&moduleManager(), &ModuleManager::dataSourceAdded, this,
-            &Internal::onDataSourceAdded);
-    connect(&moduleManager(), &ModuleManager::dataSourceRemoved, this,
-            &Internal::onDataSourceRemoved);
+    // Pipeline node changes
+    if (auto* pip = pipeline()) {
+      connect(pip, &pipeline::Pipeline::nodeAdded, this,
+              &Internal::onNodeAdded);
+      connect(pip, &pipeline::Pipeline::nodeRemoved, this,
+              &Internal::onNodeRemoved);
+    }
+
+    // Sink selection
     connect(ui.selectedDataSource,
             QOverload<int>::of(&QComboBox::currentIndexChanged), this,
             &Internal::selectedDataSourceChanged);
-    connect(&moduleManager(), &ModuleManager::moduleAdded, this,
-            &Internal::updateModuleOptions);
-    connect(&moduleManager(), &ModuleManager::moduleRemoved, this,
-            &Internal::updateModuleOptions);
     connect(ui.selectedModule,
             QOverload<int>::of(&QComboBox::currentIndexChanged), this,
             &Internal::selectedModuleChanged);
@@ -117,6 +136,8 @@ public:
 
   void updateEnableStates()
   {
+    cleanupNullAnimations();
+
     bool hasCameraAnimations = false;
     for (auto* cue : scene()->getCues()) {
       if (cue->getSMName().startsWith("CameraAnimationCue")) {
@@ -126,11 +147,9 @@ public:
     }
 
     bool hasTimeSeries = false;
-    for (auto* ds : moduleManager().allDataSources()) {
-      if (ds->hasTimeSteps()) {
-        hasTimeSeries = true;
-        break;
-      }
+    auto* tk = activeObjects().activeTimeKeeper();
+    if (tk && !tk->getTimeSteps().empty()) {
+      hasTimeSeries = true;
     }
 
     bool timeSeriesEnabled =
@@ -138,7 +157,7 @@ public:
 
     bool hasDataSourceOptions = ui.selectedDataSource->count() != 0;
     bool hasModuleOptions = ui.selectedModule->count() != 0;
-    bool moduleSelected = selectedModule() != nullptr;
+    bool moduleSelected = selectedSink() != nullptr;
     bool hasModuleAnimations = !moduleAnimations.empty();
 
     bool hasAnyAnimations =
@@ -165,7 +184,6 @@ public:
   {
     auto* renderView = activeObjects().activePqRenderView();
 
-    // Remove all previous camera cues, and create the orbit
     clearCameraCues(renderView->getRenderViewProxy());
     createCameraOrbit(renderView->getRenderViewProxy());
 
@@ -182,36 +200,48 @@ public:
     return types;
   }
 
-  QStringList allowedModuleTypes()
-  {
-    // This is based upon tab texts
-    return moduleTabTexts();
-  }
-
-  // Data sources
+  // Data sources (pipeline source nodes)
   void updateDataSourceOptions()
   {
     QSignalBlocker blocked(ui.selectedDataSource);
-    auto* previouslySelected = selectedDataSource();
+    auto* previouslySelected = selectedSource();
     int previouslySelectedIndex = -1;
 
     ui.selectedDataSource->clear();
 
-    auto& manager = moduleManager();
+    auto* pip = pipeline();
+    if (!pip) {
+      updateEnableStates();
+      return;
+    }
 
-    auto dataSources = manager.allDataSourcesDepthFirst();
-    auto labels = manager.createUniqueLabels(dataSources);
-    for (int i = 0; i < dataSources.size(); ++i) {
-      auto* dataSource = dataSources[i];
-      auto label = labels[i];
-
-      QVariant data;
-      data.setValue(dataSource);
-      ui.selectedDataSource->addItem(label, data);
-
-      if (dataSource == previouslySelected) {
-        previouslySelectedIndex = i;
+    QStringList usedLabels;
+    int idx = 0;
+    for (auto* node : pip->nodes()) {
+      auto* source = qobject_cast<pipeline::SourceNode*>(node);
+      if (!source) {
+        continue;
       }
+
+      auto label = source->label();
+      if (label.isEmpty()) {
+        label = "Source";
+      }
+
+      auto uniqueLabel = label;
+      int n = 1;
+      while (usedLabels.contains(uniqueLabel)) {
+        uniqueLabel = label + " " + QString::number(++n);
+      }
+      usedLabels.append(uniqueLabel);
+
+      ui.selectedDataSource->addItem(
+        uniqueLabel, QVariant::fromValue(static_cast<QObject*>(source)));
+
+      if (source == previouslySelected) {
+        previouslySelectedIndex = idx;
+      }
+      ++idx;
     }
 
     if (previouslySelectedIndex != -1) {
@@ -223,56 +253,66 @@ public:
     updateEnableStates();
   }
 
-  DataSource* selectedDataSource()
+  pipeline::SourceNode* selectedSource()
   {
     if (ui.selectedDataSource->count() == 0) {
       return nullptr;
     }
 
-    return ui.selectedDataSource->currentData().value<DataSource*>();
+    return qobject_cast<pipeline::SourceNode*>(
+      ui.selectedDataSource->currentData().value<QObject*>());
   }
 
-  // Modules
+  // Sinks (animatable modules)
   void updateModuleOptions()
   {
     QSignalBlocker blocked(ui.selectedModule);
-    auto* previouslySelected = selectedModule();
+    auto* previouslySelected = selectedSink();
     int previouslySelectedIndex = -1;
 
     ui.selectedModule->clear();
 
-    auto* dataSource = selectedDataSource();
-    if (!dataSource) {
+    auto* source = selectedSource();
+    auto* pip = pipeline();
+    if (!source || !pip) {
+      updateEnableStates();
       return;
     }
 
-    auto& manager = moduleManager();
-
-    QStringList labels;
-    QList<Module*> modules;
-    auto allowedTypes = allowedModuleTypes();
-    for (auto* module : manager.findModulesGeneric(dataSource, nullptr)) {
-      if (allowedTypes.contains(module->label())) {
-        modules.append(module);
-
-        int i = 1;
-        auto label = module->label();
-        while (labels.contains(label)) {
-          label = module->label() + " " + QString::number(++i);
+    QList<pipeline::Node*> sinks;
+    for (auto* node : pip->nodes()) {
+      if (qobject_cast<pipeline::ContourSink*>(node) ||
+          qobject_cast<pipeline::SliceSink*>(node)) {
+        if (findUpstreamSource(node) == source) {
+          sinks.append(node);
         }
-        labels.append(label);
       }
     }
 
-    for (int i = 0; i < modules.size(); ++i) {
-      auto* module = modules[i];
-      auto label = labels[i];
+    QStringList labels;
+    for (auto* sink : sinks) {
+      auto label = sink->label();
+      if (label.isEmpty()) {
+        if (qobject_cast<pipeline::ContourSink*>(sink)) {
+          label = "Contour";
+        } else if (qobject_cast<pipeline::SliceSink*>(sink)) {
+          label = "Slice";
+        }
+      }
 
-      QVariant data;
-      data.setValue(module);
-      ui.selectedModule->addItem(label, data);
+      auto uniqueLabel = label;
+      int n = 1;
+      while (labels.contains(uniqueLabel)) {
+        uniqueLabel = label + " " + QString::number(++n);
+      }
+      labels.append(uniqueLabel);
+    }
 
-      if (module == previouslySelected) {
+    for (int i = 0; i < sinks.size(); ++i) {
+      ui.selectedModule->addItem(
+        labels[i], QVariant::fromValue(static_cast<QObject*>(sinks[i])));
+
+      if (sinks[i] == previouslySelected) {
         previouslySelectedIndex = i;
       }
     }
@@ -286,119 +326,113 @@ public:
     updateEnableStates();
   }
 
-  Module* selectedModule()
+  pipeline::Node* selectedSink()
   {
     if (ui.selectedModule->count() == 0) {
       return nullptr;
     }
 
-    return ui.selectedModule->currentData().value<Module*>();
+    return qobject_cast<pipeline::Node*>(
+      ui.selectedModule->currentData().value<QObject*>());
   }
 
   void selectedDataSourceChanged() { updateModuleOptions(); }
 
   void selectedModuleChanged()
   {
-    // Show animation options for the selected module
-    auto* module = selectedModule();
-    auto tabIndex = 0;
-    if (module) {
-      tabIndex = moduleTabTexts().indexOf(module->label());
-    }
+    auto* node = selectedSink();
+    int tabIndex = 0;
 
-    ui.modulesTabWidget->setCurrentIndex(tabIndex);
-
-    if (qobject_cast<ModuleContour*>(module)) {
-      setupContourTab();
-    } else if (qobject_cast<ModuleSlice*>(module)) {
-      setupSliceTab();
+    if (auto* contour = qobject_cast<pipeline::ContourSink*>(node)) {
+      tabIndex = moduleTabTexts().indexOf("Contour");
+      if (tabIndex < 0) {
+        tabIndex = 0;
+      }
+      ui.modulesTabWidget->setCurrentIndex(tabIndex);
+      setupContourTab(contour);
+    } else if (auto* slice = qobject_cast<pipeline::SliceSink*>(node)) {
+      tabIndex = moduleTabTexts().indexOf("Slice");
+      if (tabIndex < 0) {
+        tabIndex = 0;
+      }
+      ui.modulesTabWidget->setCurrentIndex(tabIndex);
+      setupSliceTab(slice);
+    } else {
+      ui.modulesTabWidget->setCurrentIndex(0);
     }
 
     updateEnableStates();
   }
 
-  void onDataSourceAdded()
+  void onNodeAdded(pipeline::Node*)
   {
-    // This is done later because when the dataSourceAdded
-    // signal gets emitted, the data source does not yet have a label,
-    // but it gets added later. It appears to have the label, though,
-    // if we simple post this to the event loop to be performed later.
     QTimer::singleShot(0, this, &Internal::updateDataSourceOptions);
-    updateEnableStates();
   }
 
-  void onDataSourceRemoved()
+  void onNodeRemoved(pipeline::Node*)
   {
+    cleanupNullAnimations();
     updateDataSourceOptions();
     updateEnableStates();
   }
 
-  void setupContourTab()
+  void setupContourTab(pipeline::ContourSink* sink)
   {
-    auto* module = qobject_cast<ModuleContour*>(selectedModule());
     double range[2];
-    module->isoRange(range);
+    sink->scalarRange(range);
 
     ui.contourStart->setMinimum(range[0]);
     ui.contourStart->setMaximum(range[1]);
     ui.contourStop->setMinimum(range[0]);
     ui.contourStop->setMaximum(range[1]);
 
-    // Set reasonable default values
     ui.contourStart->setValue((range[1] - range[0]) / 3 + range[0]);
     ui.contourStop->setValue((range[1] - range[0]) * 2 / 3 + range[0]);
   }
 
-  void setupSliceTab()
+  void setupSliceTab(pipeline::SliceSink* sink)
   {
-    auto* module = qobject_cast<ModuleSlice*>(selectedModule());
-    double max = module->maxSlice();
+    double max = sink->maxSlice();
 
     ui.sliceStart->setMinimum(0);
     ui.sliceStart->setMaximum(max);
     ui.sliceStop->setMinimum(0);
     ui.sliceStop->setMaximum(max);
 
-    // Default to the full range
     ui.sliceStart->setValue(0);
     ui.sliceStop->setValue(max);
 
-    // Update the range if the slice direction changes
-    connect(module, &ModuleSlice::directionChanged, this, [this, module]() {
-      if (module != this->selectedModule()) {
-        // Disconnect, as we are no longer looking at this module.
-        disconnect(module, nullptr, this, nullptr);
-        return;
-      }
-
-      // Update the slice tab min/max
-      this->setupSliceTab();
-    });
+    connect(sink, &pipeline::SliceSink::directionChanged, this,
+            [this, sink]() {
+              if (sink != this->selectedSink()) {
+                disconnect(sink, nullptr, this, nullptr);
+                return;
+              }
+              this->setupSliceTab(sink);
+            });
   }
 
   void addModuleAnimation()
   {
-    auto* module = selectedModule();
-    if (!module) {
+    auto* node = selectedSink();
+    if (!node) {
       return;
     }
 
     for (int i = 0; i < moduleAnimations.size(); ++i) {
-      if (module == moduleAnimations[i]->baseModule) {
-        // We only allow one animation per module
-        // Remove the old one
-        moduleAnimations[i]->deleteLater();
+      if (!moduleAnimations[i] || node == moduleAnimations[i]->baseNode) {
+        if (moduleAnimations[i]) {
+          moduleAnimations[i]->deleteLater();
+        }
         moduleAnimations.removeAt(i);
         --i;
       }
     }
 
-    if (qobject_cast<ModuleContour*>(module)) {
+    if (qobject_cast<pipeline::ContourSink*>(node)) {
       addContourAnimation();
-    } else if (qobject_cast<ModuleSlice*>(module)) {
+    } else if (qobject_cast<pipeline::SliceSink*>(node)) {
       addSliceAnimation();
-    } else {
-      qDebug() << "Unknown module type: " << module;
     }
 
     updateEnableStates();
@@ -409,22 +443,24 @@ public:
   {
     auto start = ui.contourStart->value();
     auto stop = ui.contourStop->value();
-    auto* module = qobject_cast<ModuleContour*>(selectedModule());
-    moduleAnimations.append(new ContourAnimation(module, start, stop));
+    auto* sink = qobject_cast<pipeline::ContourSink*>(selectedSink());
+    moduleAnimations.append(new ContourAnimation(sink, start, stop));
   }
 
   void addSliceAnimation()
   {
     auto start = ui.sliceStart->value();
     auto stop = ui.sliceStop->value();
-    auto* module = qobject_cast<ModuleSlice*>(selectedModule());
-    moduleAnimations.append(new SliceAnimation(module, start, stop));
+    auto* sink = qobject_cast<pipeline::SliceSink*>(selectedSink());
+    moduleAnimations.append(new SliceAnimation(sink, start, stop));
   }
 
   void clearModuleAnimations()
   {
     for (auto animation : moduleAnimations) {
-      animation->deleteLater();
+      if (animation) {
+        animation->deleteLater();
+      }
     }
 
     moduleAnimations.clear();
@@ -432,12 +468,18 @@ public:
     updateEnableStates();
   }
 
+  void cleanupNullAnimations()
+  {
+    for (int i = moduleAnimations.size() - 1; i >= 0; --i) {
+      if (moduleAnimations[i].isNull()) {
+        moduleAnimations.removeAt(i);
+      }
+    }
+  }
+
   // All animations
   void numberOfFramesModified()
   {
-    // The number of frames only makes sense if the play mode is a sequence.
-    // If the user modified the number of frames, set the play mode to
-    // sequence.
     pqSMAdaptor::setEnumerationProperty(
       scene()->getProxy()->GetProperty("PlayMode"), "Sequence");
   }
@@ -457,7 +499,10 @@ public:
 
   ActiveObjects& activeObjects() { return ActiveObjects::instance(); }
 
-  ModuleManager& moduleManager() { return ModuleManager::instance(); }
+  pipeline::Pipeline* pipeline()
+  {
+    return activeObjects().pipeline();
+  }
 
   pqAnimationScene* scene()
   {
