@@ -9,7 +9,8 @@
 
 #include <pqPythonSyntaxHighlighter.h>
 
-#include <QScrollBar>
+#include <QTextBlock>
+#include <QTimer>
 
 #include <QComboBox>
 #include <QFileDialog>
@@ -24,6 +25,47 @@
 #include <QTabWidget>
 #include <QTextEdit>
 #include <QVBoxLayout>
+
+namespace {
+
+// Copy character formatting (syntax colors) from src into dst without
+// modifying dst's text.  Walks blocks in parallel, skipping blank lines
+// that only exist in one document (the HTML round-trip can lose them).
+void applySyntaxFormatting(QTextDocument* dst, const QTextDocument& src)
+{
+  QTextCursor cursor(dst);
+  cursor.beginEditBlock();
+
+  QTextBlock dstBlock = dst->begin();
+  QTextBlock srcBlock = src.begin();
+
+  while (dstBlock.isValid() && srcBlock.isValid()) {
+    if (dstBlock.text() == srcBlock.text()) {
+      for (auto it = srcBlock.begin(); !it.atEnd(); ++it) {
+        QTextFragment frag = it.fragment();
+        int start =
+          dstBlock.position() + frag.position() - srcBlock.position();
+        cursor.setPosition(start);
+        cursor.setPosition(start + frag.length(),
+                           QTextCursor::KeepAnchor);
+        cursor.setCharFormat(frag.charFormat());
+      }
+      dstBlock = dstBlock.next();
+      srcBlock = srcBlock.next();
+    } else if (dstBlock.text().isEmpty()) {
+      dstBlock = dstBlock.next();
+    } else if (srcBlock.text().isEmpty()) {
+      srcBlock = srcBlock.next();
+    } else {
+      dstBlock = dstBlock.next();
+      srcBlock = srcBlock.next();
+    }
+  }
+
+  cursor.endEditBlock();
+}
+
+} // anonymous namespace
 
 namespace tomviz {
 namespace pipeline {
@@ -66,25 +108,29 @@ PythonNodeEditorWidget::PythonNodeEditorWidget(
   // Set font after the highlighter ctor, which sets QFont("Monospace")
   m_scriptEdit->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
 
-  // Wire up highlighting ourselves instead of ConnectHighligter(), which has
-  // scroll-restoration and double-highlight bugs in the upstream ParaView code.
+  // Wire up highlighting ourselves instead of ConnectHighligter(), which
+  // uses setHtml() to replace the whole document — that loses blank lines.
+  // Instead we parse the HTML into a temp document and copy only the
+  // character formatting (colors) into the real document via
+  // applySyntaxFormatting(), leaving the text untouched.
+  auto* rehighlightTimer = new QTimer(m_scriptEdit);
+  rehighlightTimer->setSingleShot(true);
+  rehighlightTimer->setInterval(0);
+
   connect(m_scriptEdit, &QTextEdit::textChanged, m_scriptEdit,
+    [rehighlightTimer]() { rehighlightTimer->start(); });
+
+  connect(rehighlightTimer, &QTimer::timeout, m_scriptEdit,
     [highlighter, edit = m_scriptEdit]() {
-      const QString text = edit->toPlainText();
-      const int cursorPos = edit->textCursor().position();
-      const QString html = highlighter->Highlight(text);
-      if (!html.isEmpty()) {
-        const int vScroll = edit->verticalScrollBar()->value();
-        const int hScroll = edit->horizontalScrollBar()->value();
-        const bool blocked = edit->blockSignals(true);
-        edit->setHtml(html);
-        QTextCursor cursor = edit->textCursor();
-        cursor.setPosition(cursorPos);
-        edit->setTextCursor(cursor);
-        edit->verticalScrollBar()->setValue(vScroll);
-        edit->horizontalScrollBar()->setValue(hScroll);
-        edit->blockSignals(blocked);
+      const QString html = highlighter->Highlight(edit->toPlainText());
+      if (html.isEmpty()) {
+        return;
       }
+      QTextDocument tempDoc;
+      tempDoc.setHtml(html);
+      const bool blocked = edit->blockSignals(true);
+      applySyntaxFormatting(edit->document(), tempDoc);
+      edit->blockSignals(blocked);
     });
 
   if (!script.isEmpty()) {
