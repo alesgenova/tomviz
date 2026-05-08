@@ -9,6 +9,8 @@
 
 #include <pqPythonSyntaxHighlighter.h>
 
+#include <QScrollBar>
+
 #include <QComboBox>
 #include <QFileDialog>
 #include <QFontDatabase>
@@ -58,13 +60,32 @@ PythonNodeEditorWidget::PythonNodeEditorWidget(
   m_scriptEdit = new QTextEdit(scriptTab);
   m_scriptEdit->setLineWrapMode(QTextEdit::NoWrap);
 
-  // ConnectHighligter() is required — the ctor alone doesn't wire it.
   auto* highlighter =
     new pqPythonSyntaxHighlighter(m_scriptEdit, *m_scriptEdit);
-  highlighter->ConnectHighligter();
 
-  // Set font after the highlighter, which overwrites with QFont("Monospace")
+  // Set font after the highlighter ctor, which sets QFont("Monospace")
   m_scriptEdit->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+
+  // Wire up highlighting ourselves instead of ConnectHighligter(), which has
+  // scroll-restoration and double-highlight bugs in the upstream ParaView code.
+  connect(m_scriptEdit, &QTextEdit::textChanged, m_scriptEdit,
+    [highlighter, edit = m_scriptEdit]() {
+      const QString text = edit->toPlainText();
+      const int cursorPos = edit->textCursor().position();
+      const QString html = highlighter->Highlight(text);
+      if (!html.isEmpty()) {
+        const int vScroll = edit->verticalScrollBar()->value();
+        const int hScroll = edit->horizontalScrollBar()->value();
+        const bool blocked = edit->blockSignals(true);
+        edit->setHtml(html);
+        QTextCursor cursor = edit->textCursor();
+        cursor.setPosition(cursorPos);
+        edit->setTextCursor(cursor);
+        edit->verticalScrollBar()->setValue(vScroll);
+        edit->horizontalScrollBar()->setValue(hScroll);
+        edit->blockSignals(blocked);
+      }
+    });
 
   if (!script.isEmpty()) {
     m_scriptEdit->setPlainText(script);
