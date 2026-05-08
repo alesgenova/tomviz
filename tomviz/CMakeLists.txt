@@ -184,10 +184,8 @@ set(SOURCES
   PythonUtilities.h
   PythonWriter.cxx
   PythonWriter.h
-  PyXRFMakeHDF5Dialog.cxx
-  PyXRFMakeHDF5Dialog.h
-  PyXRFProcessDialog.cxx
-  PyXRFProcessDialog.h
+  PyXRFDialog.cxx
+  PyXRFDialog.h
   PyXRFRunner.cxx
   PyXRFRunner.h
   pybind11/PythonTypeConversions.cxx
@@ -631,6 +629,7 @@ set(python_files
   ConstantDataset.py
   RandomParticles.py
   PtychoSource.py
+  PyXRFSource.py
   GenerateTiltSeries.py
   SetNegativeVoxelsToZero.py
   ShiftTiltSeriesRandomly.py
@@ -723,6 +722,7 @@ set(json_files
   ConstantDataset.json
   RandomParticles.json
   PtychoSource.json
+  PyXRFSource.json
   STEM_probe.json
   )
 
@@ -843,6 +843,7 @@ set(tomviz_python_pyxrf_modules
   __init__.py
   ic_names.py
   load_output.py
+  scan_metadata.py
   sids.py
 )
 

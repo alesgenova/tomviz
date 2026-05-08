@@ -2,172 +2,108 @@
    It is released under the 3-Clause BSD License, see "LICENSE". */
 
 #include <QApplication>
-#include <QComboBox>
-#include <QDebug>
 #include <QDir>
 #include <QFileInfo>
-#include <QLineEdit>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QTemporaryDir>
 #include <QTest>
-#include <QThread>
-#include <QTimer>
 
 #include <pqPVApplicationCore.h>
 
 #include "PythonUtilities.h"
-#include "PyXRFRunner.h"
-#include "PyXRFMakeHDF5Dialog.h"
-#include "PyXRFProcessDialog.h"
-#include "SelectItemsDialog.h"
+#include "Utilities.h"
+
+#include "pipeline/OutputPort.h"
+#include "pipeline/sources/PythonSource.h"
 
 #include "TomvizTest.h"
 
 using namespace tomviz;
-
-const QDir ROOT_DATA_DIR = QString(SOURCE_DIR) + "/data";
-const QDir DATA_DIR = ROOT_DATA_DIR.absolutePath() + "/Pt_Zn_XRF";
-
-template <typename T>
-T* findWidget()
-{
-  for (auto* widget : QApplication::topLevelWidgets()) {
-    if (qobject_cast<T*>(widget)) {
-      return qobject_cast<T*>(widget);
-    }
-  }
-
-  return nullptr;
-}
+using namespace tomviz::pipeline;
 
 class PyXRFWorkflowTest : public QObject
 {
   Q_OBJECT
 
 private:
-  void downloadDataIfMissing()
+  QTemporaryDir m_tempDir;
+
+  bool createSyntheticTomoH5(const QString& outputPath)
   {
-    if (DATA_DIR.exists()) {
-      // Nothing to do
-      return;
-    }
-    // Download the data if it is not present
     QString python = "python";
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     if (env.contains("TOMVIZ_TEST_PYTHON_EXECUTABLE")) {
       python = env.value("TOMVIZ_TEST_PYTHON_EXECUTABLE");
     }
 
-    auto scriptFile = QFileInfo(QString(SOURCE_DIR) + "/fixtures/download_and_unzip.py");
+    auto scriptFile =
+      QFileInfo(QString(SOURCE_DIR) + "/fixtures/create_synthetic_tomo.py");
     QString scriptPath = scriptFile.absoluteFilePath();
 
-    QString url = "https://data.kitware.com/api/v1/file/6914b15783abdcd84d150c97/download";
-
-    // We unzip into the parent directory, which will then have `Pt_Zn_XRF`
-    // after unzipping.
-    QStringList arguments;
-    arguments << scriptPath << url << ROOT_DATA_DIR.absolutePath();
+    QDir().mkpath(QFileInfo(outputPath).absolutePath());
 
     QProcess process;
     process.setProcessChannelMode(QProcess::ForwardedChannels);
-    process.start(python, arguments);
+    process.start(python, { scriptPath, outputPath });
 
-    // Timeout in seconds
-    int timeout = 60 * 10;
-    QVERIFY(process.waitForFinished(timeout * 1000));
-    QVERIFY(process.exitCode() == 0);
+    if (!process.waitForFinished(30000)) {
+      qCritical() << "Timed out creating synthetic tomo.h5";
+      return false;
+    }
+
+    return process.exitCode() == 0;
   }
 
 private slots:
   void initTestCase()
   {
-    downloadDataIfMissing();
+    QVERIFY2(m_tempDir.isValid(), "Failed to create temp directory");
   }
 
   void cleanupTestCase() {}
 
   void runTest()
   {
-    QString workingDir = DATA_DIR.absolutePath() + "/";
+    QString outputDir = m_tempDir.path() + "/recon";
+    QString tomoFile = outputDir + "/tomo.h5";
 
-    auto* runner = new PyXRFRunner(this);
-    runner->setAutoLoadFinalData(false);
-    runner->start();
+    bool created = createSyntheticTomoH5(tomoFile);
+    QVERIFY2(created, "Failed to create synthetic tomo.h5");
+    QVERIFY2(QFile::exists(tomoFile), "Synthetic tomo.h5 does not exist");
 
-    auto* makeHDF5Dialog = findWidget<PyXRFMakeHDF5Dialog>();
-    QVERIFY(makeHDF5Dialog);
+    auto jsonDesc = readInJSONDescription("PyXRFSource");
+    QVERIFY2(!jsonDesc.contains("raise IOError"),
+             "Could not read PyXRFSource.json");
 
-    // Set the method to already existing
-    auto* method = makeHDF5Dialog->findChild<QComboBox*>("method");
-    QVERIFY(method);
-    method->setCurrentText("Already Existing");
+    auto script = readInPythonScript("PyXRFSource");
+    QVERIFY2(!script.contains("raise IOError"),
+             "Could not read PyXRFSource.py");
 
-    auto* workingDirEdit = makeHDF5Dialog->findChild<QLineEdit*>("workingDirectory");
-    QVERIFY(workingDirEdit);
-    workingDirEdit->setText(workingDir);
+    auto* source = new PythonSource(this);
+    source->setJSONDescription(jsonDesc);
+    source->setScript(script);
 
-    makeHDF5Dialog->accept();
+    // Empty scan_range skips all subprocess calls and goes straight
+    // to reading tomo.h5 from the output directory.
+    source->setParameter("working_directory", outputDir);
+    source->setParameter("scan_range", QString(""));
+    source->setParameter("skip_scan_ids", QString("[]"));
+    source->setParameter("redownload_successful", false);
+    source->setParameter("skip_processed", true);
+    source->setParameter("rotate_datasets", false);
+    source->setParameter("pyxrf_utils_command", QString("pyxrf-utils"));
+    source->setParameter("parameters_file", QString(""));
+    source->setParameter("ic_name", QString("sclr1_ch4"));
+    source->setParameter("csv_output", QString(""));
 
-    auto* processDialog = findWidget<PyXRFProcessDialog>();
-    QVERIFY(processDialog);
+    bool ok = source->execute();
+    QVERIFY2(ok, "PyXRFSource::execute() failed");
 
-    auto* logFile = processDialog->findChild<QLineEdit*>("logFile");
-    QVERIFY(logFile);
-    logFile->setText(workingDir + "log.csv");
-
-    auto* paramsFile = processDialog->findChild<QLineEdit*>("parametersFile");
-    QVERIFY(paramsFile);
-    paramsFile->setText(workingDir + "pyxrf_model_parameters_157397.json");
-
-    auto* outputDir = processDialog->findChild<QLineEdit*>("outputDirectory");
-    QVERIFY(outputDir);
-    outputDir->setText(workingDir + "recon");
-
-    auto* icName = processDialog->findChild<QComboBox*>("icName");
-    QVERIFY(icName);
-    icName->setCurrentText("sclr1_ch4");
-
-    // After accepting, a modal dialog will appear. Start posting
-    // events to check it and accept it when it appears.
-    bool found = false;
-
-    std::function<void()> checkFunc;
-    checkFunc = [&found, &checkFunc](){
-      auto* dialog = findWidget<SelectItemsDialog>();
-      if (!dialog) {
-        QTimer::singleShot(1000, checkFunc);
-        return;
-      }
-
-      // Just accept the dialog
-      found = true;
-      dialog->accept();
-    };
-
-    QTimer::singleShot(0, checkFunc);
-    processDialog->accept();
-
-    // Keep processing events until all dialogs have
-    // been found and accepted/rejected.
-    int timeElapsed = 0;
-    int maxTime = 120;
-    while (!found && timeElapsed < maxTime) {
-      QThread::sleep(1);
-      QApplication::processEvents();
-      timeElapsed += 1;
-    }
-
-    // Clean up the runner (terminates any running processes)
-    delete runner;
-
-    // Verify everything was found
-    QVERIFY(found);
-
-    // Verify that one of the output files now exist
-    auto exampleFile = workingDir + "recon/extracted_elements/Cl_K.emd";
-    QVERIFY(QFileInfo::exists(exampleFile));
+    auto* elementsPort = source->outputPort("elements");
+    QVERIFY(elementsPort);
+    QVERIFY2(elementsPort->hasData(), "elements output port has no data");
   }
-
 };
 
 int main(int argc, char** argv)

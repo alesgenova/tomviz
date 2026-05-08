@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 import json
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
+from numpy.typing import NDArray
 from scipy.ndimage.interpolation import rotate
 from scipy.optimize import leastsq
 from tqdm import tqdm
@@ -11,22 +15,30 @@ import tomviz.nodes
 
 from tomviz.ptycho.ptycho import find_ptycho_file
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
-def _fit_func(p0, px1, py1):
+    from tomviz.dataset import Dataset
+
+
+def _fit_func(p0: float, px1: float,
+              py1: float) -> Callable[[NDArray, NDArray], NDArray]:
     return lambda x, y: p0 + x * px1 + py1 * y
 
 
-def _remove_background(im):
+def _remove_background(im: NDArray[np.floating]) -> NDArray[np.floating]:
     params = [0, 0, 0]
 
-    def err_func(p):
+    def err_func(p: list[float]) -> NDArray:
         return np.ravel(_fit_func(*p)(*np.indices(im.shape)) - im)
 
     p, success = leastsq(err_func, params)
     return im - _fit_func(*p)(*np.indices(im.shape))
 
 
-def _attempt_to_read_pixel_sizes(sid, version, ptycho_dir):
+def _attempt_to_read_pixel_sizes(
+    sid: int, version: str, ptycho_dir: str | Path,
+) -> tuple[float, float] | None:
     from tomviz.ptycho.ptycho import (
         locate_ptycho_hyan_file,
         fetch_pixel_sizes_from_ptycho_hyan_file,
@@ -54,29 +66,34 @@ def _attempt_to_read_pixel_sizes(sid, version, ptycho_dir):
     return result[0], result[1]
 
 
-def _stack_ptycho_data(version_list, sid_list, angle_list,
-                       ptycho_dir, rotate_datasets=True):
+def _stack_ptycho_data(
+    version_list: list[str],
+    sid_list: list[int],
+    angle_list: list[float],
+    ptycho_dir: str,
+    rotate_datasets: bool = True,
+) -> dict[str, object]:
     angle_list, sid_list, version_list = (
         zip(*sorted(zip(angle_list, sid_list, version_list)))
     )
 
-    filespty_obj = []
-    filespty_prb = []
-    currentsidlist = []
+    filespty_obj: list[Path] = []
+    filespty_prb: list[Path | None] = []
+    currentsidlist: list[tuple[int, int, float, str]] = []
 
     if len(version_list) == 1:
         version_list = np.repeat(version_list, len(sid_list))
 
-    ptycho_dir = Path(ptycho_dir)
+    ptycho_dir_path = Path(ptycho_dir)
 
-    pixel_size_x = None
-    pixel_size_y = None
+    pixel_size_x: float | None = None
+    pixel_size_y: float | None = None
     for i, sid in tqdm(enumerate(sid_list[0: len(version_list)]),
                        desc="Loading Ptycho"):
         sid = int(sid)
         version = version_list[i]
-        f_path = find_ptycho_file(sid, version, 'object', ptycho_dir)
-        g_path = find_ptycho_file(sid, version, 'probe', ptycho_dir)
+        f_path = find_ptycho_file(sid, version, 'object', ptycho_dir_path)
+        g_path = find_ptycho_file(sid, version, 'probe', ptycho_dir_path)
         if f_path is not None:
             filespty_obj.append(f_path)
             currentsidlist.append((i, sid, angle_list[i], version))
@@ -84,7 +101,8 @@ def _stack_ptycho_data(version_list, sid_list, angle_list,
             if i == 0:
                 print('Attempting to read pixel sizes from the '
                       f'first scan ID: {sid}')
-                result = _attempt_to_read_pixel_sizes(sid, version, ptycho_dir)
+                result = _attempt_to_read_pixel_sizes(
+                    sid, version, ptycho_dir_path)
                 if result is not None:
                     pixel_size_x, pixel_size_y = result
         else:
@@ -93,12 +111,12 @@ def _stack_ptycho_data(version_list, sid_list, angle_list,
     has_pixel_sizes = pixel_size_x is not None
     print(f"found: {len(filespty_obj)}")
 
-    tempPtyobj = []
-    tempPtyprb = []
-    tempPtyamp = []
+    tempPtyobj: list[NDArray] = []
+    tempPtyprb: list[NDArray] = []
+    tempPtyamp: list[NDArray] = []
     for i in tqdm(range(len(filespty_obj)), desc="processing ptycho"):
-        obj = np.load(filespty_obj[i])
-        prb = np.load(filespty_prb[i])
+        obj: NDArray = np.load(filespty_obj[i])
+        prb: NDArray = np.load(filespty_prb[i])
 
         if obj.ndim == 3:
             obj = obj[0]
@@ -155,7 +173,7 @@ def _stack_ptycho_data(version_list, sid_list, angle_list,
         ptychodatanew[n, :, :] = ti
         ampdatanew[n, :, :] = ta
 
-    arrays = {
+    arrays: dict[str, NDArray] = {
         'Phase': ptychodatanew,
         'Amplitude': ampdatanew,
     }
@@ -185,15 +203,18 @@ def _stack_ptycho_data(version_list, sid_list, angle_list,
     }
 
 
-def _write_ptycho_info_file(output_path, info_rows):
-    currentsidlist_str = []
+def _write_ptycho_info_file(
+    output_path: str,
+    info_rows: list[tuple[int, int, float, str]],
+) -> None:
+    currentsidlist_str: list[list[str]] = []
     for row in info_rows:
-        this_row = []
+        this_row: list[str] = []
         for entry in row:
             if isinstance(entry, float):
                 s = f'{entry:.3f}'
             else:
-                s = entry
+                s = str(entry)
             this_row.append(s)
         currentsidlist_str.append(this_row)
 
@@ -205,28 +226,29 @@ def _write_ptycho_info_file(output_path, info_rows):
         header_str = col_delim.join([f'{x:>{col_width}}' for x in headers])
         header_str = '#' + header_str[1:]
         wf.write(header_str + '\n')
-        for row in currentsidlist_str:
+        for row_str_list in currentsidlist_str:
             row_str = col_delim.join([
-                f'{row[idx]:>{col_width}}' for idx in index_order
+                f'{row_str_list[idx]:>{col_width}}' for idx in index_order
             ])
             wf.write(row_str + '\n')
 
 
 class PtychoSource(tomviz.nodes.SourceNode):
 
-    def produce(self, ptycho_dir='', output_info_file='',
-                rotate_datasets=True, sid_list='[]', version_list='[]',
-                angle_list='[]'):
-        sid_list = json.loads(sid_list)
-        version_list = json.loads(version_list)
-        angle_list = json.loads(angle_list)
+    def produce(self, ptycho_dir: str = '', output_info_file: str = '',
+                rotate_datasets: bool = True, sid_list: str = '[]',
+                version_list: str = '[]',
+                angle_list: str = '[]') -> dict[str, Dataset] | None:
+        parsed_sids: list[int] = json.loads(sid_list)
+        parsed_versions: list[str] = json.loads(version_list)
+        parsed_angles: list[float] = json.loads(angle_list)
 
-        if not sid_list:
+        if not parsed_sids:
             print('No scan IDs provided')
             return None
 
         result = _stack_ptycho_data(
-            version_list, sid_list, angle_list,
+            parsed_versions, parsed_sids, parsed_angles,
             ptycho_dir, rotate_datasets,
         )
 
@@ -247,7 +269,7 @@ class PtychoSource(tomviz.nodes.SourceNode):
             object_ds.spacing = (
                 result['pixel_size_x'], result['pixel_size_y'], 1)
 
-        outputs = {'object': object_ds}
+        outputs: dict[str, Dataset] = {'object': object_ds}
 
         # Build the probe dataset if probes are available
         if result['has_probes']:

@@ -186,17 +186,9 @@ public:
       LoadDataReaction::completeSourceSetup(source);
     }
 
-    // Adjust camera to BNL convention after execution completes
-    connect(source, &pipeline::Node::execStateChanged, this,
-            [this](pipeline::NodeExecState state) {
-              if (state == pipeline::NodeExecState::Idle) {
-                CameraReaction::resetPositiveZ();
-                CameraReaction::rotateCamera(-90);
-              }
-            },
-            Qt::SingleShotConnection);
+    CameraReaction::resetPositiveZ();
+    CameraReaction::rotateCamera(-90);
 
-    // Trigger execution
     source->markStale();
     pip->execute();
   }

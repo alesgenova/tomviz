@@ -4,9 +4,12 @@ import h5py
 
 def ic_names(working_directory):
     # Find any HDF5 file in the working directory and grab the ic names
-    files = [x for x in Path(working_directory).iterdir() if x.suffix == '.h5']
+    wd = Path(working_directory)
+    if not wd.is_dir():
+        return []
+    files = [x for x in wd.iterdir() if x.suffix == '.h5']
     if not files:
-        raise Exception(f'No .h5 files found in "{working_directory}"')
+        return []
 
     first_file = files[0]
 

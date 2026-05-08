@@ -1,35 +1,34 @@
 /* This source file is part of the Tomviz project, https://tomviz.org/.
    It is released under the 3-Clause BSD License, see "LICENSE". */
 
-#ifndef tomvizPyXRFProcessDialog_h
-#define tomvizPyXRFProcessDialog_h
+#ifndef tomvizPyXRFDialog_h
+#define tomvizPyXRFDialog_h
 
 #include <QDialog>
 #include <QScopedPointer>
 
 namespace tomviz {
 
-class PyXRFProcessDialog : public QDialog
+class PyXRFDialog : public QDialog
 {
   Q_OBJECT
 
 public:
-  explicit PyXRFProcessDialog(QString workingDirectory, QString logFile,
-                              QWidget* parent);
-  ~PyXRFProcessDialog() override;
+  explicit PyXRFDialog(QWidget* parent);
+  ~PyXRFDialog() override;
 
   virtual void show();
 
   QString command() const;
+  QString workingDirectory() const;
+  QString scanRange() const;
+  QString skipScanIds() const;
+  bool redownloadSuccessful() const;
   QString parametersFile() const;
-  QString logFile() const;
   QString icName() const;
-  QString outputDirectory() const;
-  double pixelSizeX() const;
-  double pixelSizeY() const;
   bool skipProcessed() const;
   bool rotateDatasets() const;
-  QVector<int> selectedScanIDs() const;
+  QString csvOutput() const;
 
 private:
   class Internal;
