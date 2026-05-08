@@ -590,14 +590,32 @@ void LoadDataReaction::completeSourceSetup(pipeline::SourceNode* source,
 
 void LoadDataReaction::sourceNodeAdded(pipeline::SourceNode* source,
                                        bool defaultModules, bool /* child */,
-                                       bool /* createCameraOrbit */)
+                                       bool createCameraOrbit)
 {
+  auto* pip = ActiveObjects::instance().pipeline();
+  bool isFirstSource = pip && pip->nodes().isEmpty();
+
   addSourceToPipeline(source);
   completeSourceSetup(source, defaultModules);
 
+  if (isFirstSource && createCameraOrbit && pip) {
+    // Create the camera orbit after the first execution completes so the
+    // camera has been reset to frame the data.
+    auto conn = std::make_shared<QMetaObject::Connection>();
+    *conn = QObject::connect(
+      pip, &pipeline::Pipeline::executionFinished, pip, [conn]() {
+        QObject::disconnect(*conn);
+        tomviz::setAnimationNumberOfFrames(200);
+        auto* rv = ActiveObjects::instance().activePqRenderView();
+        if (rv) {
+          tomviz::createCameraOrbit(rv->getRenderViewProxy());
+        }
+      });
+  }
+
   // Defer so the event loop can process pending signals before executing.
   // ThreadedExecutor handles the case where it's already running.
-  if (auto* pip = ActiveObjects::instance().pipeline()) {
+  if (pip) {
     QTimer::singleShot(0, pip, [pip]() { pip->execute(); });
   }
 }
