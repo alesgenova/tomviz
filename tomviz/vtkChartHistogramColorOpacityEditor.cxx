@@ -61,6 +61,7 @@ vtkChartHistogramColorOpacityEditor::vtkChartHistogramColorOpacityEditor()
   this->ColorTransferFunctionChart->SetRenderEmpty(true);
   this->ColorTransferFunctionChart->SetAutoAxes(false);
   this->ColorTransferFunctionChart->ZoomWithMouseWheelOff();
+  this->ColorTransferFunctionChart->SetActionToButton(vtkChart::PAN, -1);
   this->ColorTransferFunctionChart->SetLayoutStrategy(vtkChart::AXES_TO_RECT);
 
   this->ColorTransferFunctionItem->SelectableOff();
