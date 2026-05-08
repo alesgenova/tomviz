@@ -56,13 +56,15 @@ PythonNodeEditorWidget::PythonNodeEditorWidget(
   auto* scriptLayout = new QVBoxLayout(scriptTab);
 
   m_scriptEdit = new QTextEdit(scriptTab);
-  m_scriptEdit->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
   m_scriptEdit->setLineWrapMode(QTextEdit::NoWrap);
 
   // ConnectHighligter() is required — the ctor alone doesn't wire it.
   auto* highlighter =
     new pqPythonSyntaxHighlighter(m_scriptEdit, *m_scriptEdit);
   highlighter->ConnectHighligter();
+
+  // Set font after the highlighter, which overwrites with QFont("Monospace")
+  m_scriptEdit->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
 
   if (!script.isEmpty()) {
     m_scriptEdit->setPlainText(script);
