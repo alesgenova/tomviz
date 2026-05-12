@@ -73,6 +73,7 @@ public slots:
   void onPresetClicked();
   void onSaveToPresetClicked();
   void onBrightnessAndContrastClicked();
+  void onCreateSegmentationColormapClicked();
   void applyCurrentPreset();
   void updateUI();
 
