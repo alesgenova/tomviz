@@ -107,7 +107,7 @@ public:
     connect(ui.downloadData, &QPushButton::clicked, this,
             &Internal::onDownloadData);
 
-    connect(ui.loadSidsFromTxt, &QPushButton::clicked, this,
+    connect(ui.loadSidsFromTxtOrCSV, &QPushButton::clicked, this,
             &Internal::onLoadSidsFromTxt);
     connect(ui.applyFilter, &QPushButton::clicked, this,
             &Internal::applyFilter);
@@ -421,7 +421,8 @@ public:
   void onLoadSidsFromTxt()
   {
     auto filePath = QFileDialog::getOpenFileName(
-      parent.data(), "Select txt file", workingDirectory(), "*.txt");
+      parent.data(), "Select txt or csv file", workingDirectory(),
+      "Text/CSV Files (*.txt *.csv)");
     if (filePath.isEmpty()) {
       return;
     }
@@ -433,6 +434,16 @@ public:
     }
 
     QTextStream reader(&file);
+
+    if (filePath.endsWith(".csv", Qt::CaseInsensitive)) {
+      loadSidsFromCsv(reader);
+    } else {
+      loadSidsFromTxt(reader);
+    }
+  }
+
+  void loadSidsFromTxt(QTextStream& reader)
+  {
     QStringList sids;
     while (!reader.atEnd()) {
       auto line = reader.readLine().trimmed();
@@ -443,6 +454,67 @@ public:
     }
 
     ui.filterSidsString->setText(sids.join(", "));
+  }
+
+  void loadSidsFromCsv(QTextStream& reader)
+  {
+    // Read header to find column indices
+    auto header = reader.readLine().trimmed();
+    auto columns = header.split(',');
+    for (auto& col : columns) {
+      col = col.trimmed();
+    }
+
+    int sidCol = columns.indexOf("Scan ID");
+    if (sidCol < 0) {
+      sidCol = columns.indexOf("Scan_ID");
+    }
+    if (sidCol < 0) {
+      qCritical() << "CSV file has no \"Scan ID\" column";
+      return;
+    }
+
+    int useCol = columns.indexOf("Use");
+    if (useCol < 0) {
+      useCol = columns.indexOf("use");
+    }
+
+    QStringList sids;
+    QList<int> sidInts;
+    QList<bool> useFlags;
+    while (!reader.atEnd()) {
+      auto line = reader.readLine().trimmed();
+      if (line.isEmpty() || line.startsWith('#')) {
+        continue;
+      }
+      auto fields = line.split(',');
+      if (sidCol >= fields.size()) {
+        continue;
+      }
+      auto sidStr = fields[sidCol].trimmed();
+      sids.append(sidStr);
+      sidInts.append(sidStr.toInt());
+
+      if (useCol >= 0 && useCol < fields.size()) {
+        auto val = fields[useCol].trimmed();
+        useFlags.append(val == "1" || val.toLower() == "x");
+      }
+    }
+
+    ui.filterSidsString->setText(sids.join(", "));
+
+    // If the CSV has a "Use" column, apply it to the scan table
+    if (!useFlags.isEmpty()) {
+      for (int i = 0; i < sidInts.size() && i < useFlags.size(); ++i) {
+        for (auto& entry : scanEntries) {
+          if (entry.scanId == sidInts[i]) {
+            entry.use = useFlags[i];
+            break;
+          }
+        }
+      }
+      rebuildTableUI();
+    }
   }
 
   void applyFilter()
