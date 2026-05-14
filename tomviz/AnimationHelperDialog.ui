@@ -154,13 +154,13 @@
      </widget>
      <widget class="QWidget" name="tab">
       <attribute name="title">
-       <string>Modules</string>
+       <string>Visualizations</string>
       </attribute>
       <layout class="QGridLayout" name="gridLayout_2">
        <item row="2" column="1">
         <widget class="QLabel" name="selectedModuleLabel">
          <property name="text">
-          <string>Module:</string>
+          <string>Visualization:</string>
          </property>
          <property name="buddy">
           <cstring>selectedModule</cstring>
@@ -320,10 +320,10 @@
           <bool>false</bool>
          </property>
          <property name="toolTip">
-          <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Add an animation for this module using the above settings.&lt;/p&gt;&lt;p&gt;&lt;br/&gt;&lt;/p&gt;&lt;p&gt;Note that each module may currently only have one animation. Any old animations for a given module will be over-written.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+          <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Add an animation for this visualization using the above settings.&lt;/p&gt;&lt;p&gt;&lt;br/&gt;&lt;/p&gt;&lt;p&gt;Note that each visualization may currently only have one animation. Any old animations for a given visualization will be over-written.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
          </property>
          <property name="text">
-          <string>Add Module Animation</string>
+          <string>Add Visualization Animation</string>
          </property>
         </widget>
        </item>
@@ -333,21 +333,21 @@
           <bool>false</bool>
          </property>
          <property name="text">
-          <string>Clear Module Animations</string>
+          <string>Clear Visualization Animations</string>
          </property>
         </widget>
        </item>
        <item row="1" column="2" colspan="2">
         <widget class="QComboBox" name="selectedDataSource">
          <property name="toolTip">
-          <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Select a data source. Any modules that support animations and are associated with this data source will be listed below.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+          <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Select a data source. Any visualizations that support animations and are associated with this data source will be listed below.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
          </property>
         </widget>
        </item>
        <item row="2" column="2" colspan="2">
         <widget class="QComboBox" name="selectedModule">
          <property name="toolTip">
-          <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Select a module for animation.&lt;/p&gt;&lt;p&gt;&lt;br/&gt;&lt;/p&gt;&lt;p&gt;Current supported list:&lt;br/&gt;&lt;/p&gt;&lt;p&gt;Contour&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+          <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Select a visualization for animation.&lt;/p&gt;&lt;p&gt;&lt;br/&gt;&lt;/p&gt;&lt;p&gt;Currently supported:&lt;br/&gt;&lt;/p&gt;&lt;p&gt;Contour, Slice&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
          </property>
         </widget>
        </item>
