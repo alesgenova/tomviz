@@ -2,7 +2,8 @@ import numpy as np
 import tomopy
 
 
-def transform(dataset, algorithm='gridrec', num_iter=5, reg_par=0.1):
+def transform(dataset, algorithm='gridrec', num_iter=5, reg_par=0.1,
+              use_gpu=False):
     data = dataset.active_scalars
     tilt_axis = dataset.tilt_axis
 
@@ -23,6 +24,9 @@ def transform(dataset, algorithm='gridrec', num_iter=5, reg_par=0.1):
         recon_kwargs['num_iter'] = num_iter
     if algorithm == 'tv':
         recon_kwargs['reg_par'] = reg_par
+    if use_gpu and algorithm in ('sirt', 'mlem'):
+        recon_kwargs['accelerated'] = True
+        recon_kwargs['device'] = 'gpu'
 
     rec = tomopy.recon(data, angles_rad, center=center, algorithm=algorithm,
                        **recon_kwargs)

@@ -52,6 +52,14 @@
       "minimum": 0.0001,
       "maximum": 10.0,
       "visible_if": "algorithm == 'tv'"
+    },
+    {
+      "name": "use_gpu",
+      "label": "Use GPU (CUDA)",
+      "description": "Use GPU acceleration via CUDA (requires a CUDA-capable GPU)",
+      "type": "bool",
+      "default": false,
+      "visible_if": "algorithm == 'sirt' or algorithm == 'mlem'"
     }
   ],
   "children": [
