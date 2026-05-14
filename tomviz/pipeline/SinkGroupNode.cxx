@@ -17,7 +17,7 @@ namespace pipeline {
 
 SinkGroupNode::SinkGroupNode(QObject* parent) : Node(parent)
 {
-  setLabel("Modules");
+  setLabel("Visualizations");
 }
 
 void SinkGroupNode::addPassthrough(const QString& name, PortType type)
