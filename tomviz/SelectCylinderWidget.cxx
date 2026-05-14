@@ -229,6 +229,7 @@ SelectCylinderWidget::SelectCylinderWidget(
 
   m_internal->cylinderWidget->SetRepresentation(rep.GetPointer());
   m_internal->cylinderWidget->SetInteractor(iren);
+  m_internal->cylinderWidget->SetPriority(1);
   m_internal->cylinderWidget->setupInteraction();
   m_internal->cylinderWidget->EnabledOn();
 
@@ -240,6 +241,14 @@ SelectCylinderWidget::SelectCylinderWidget(
 
   // Build the Qt UI
   auto* layout = new QVBoxLayout;
+
+  auto* instructions = new QLabel(
+    "Left-click the cylinder and drag to translate. "
+    "Left-click the arrow and drag to adjust the orientation. "
+    "Right-click the cylinder and drag to adjust the radius.");
+  instructions->setWordWrap(true);
+  layout->addWidget(instructions);
+
   auto* grid = new QGridLayout;
 
   int row = 0;
