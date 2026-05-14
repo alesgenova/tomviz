@@ -366,13 +366,17 @@ public:
 
   void onNodeAdded(pipeline::Node*)
   {
-    QTimer::singleShot(0, this, &Internal::updateDataSourceOptions);
+    QTimer::singleShot(0, this, [this]() {
+      updateDataSourceOptions();
+      updateModuleOptions();
+    });
   }
 
   void onNodeRemoved(pipeline::Node*)
   {
     cleanupNullAnimations();
     updateDataSourceOptions();
+    updateModuleOptions();
     updateEnableStates();
   }
 
