@@ -17,6 +17,15 @@
           "FBP": "fbp"
         },
         {
+          "SIRT": "sirt"
+        },
+        {
+          "ART": "art"
+        },
+        {
+          "TV": "tv"
+        },
+        {
           "MLEM": "mlem"
         },
         {
@@ -32,7 +41,17 @@
       "default": 5,
       "minimum": 1,
       "maximum": 1000,
-      "visible_if": "algorithm == 'mlem' or algorithm == 'ospml_hybrid'"
+      "visible_if": "algorithm == 'sirt' or algorithm == 'art' or algorithm == 'tv' or algorithm == 'mlem' or algorithm == 'ospml_hybrid'"
+    },
+    {
+      "name": "reg_par",
+      "label": "Regularization",
+      "description": "Regularization parameter controlling smoothness (TV only)",
+      "type": "double",
+      "default": 0.1,
+      "minimum": 0.0001,
+      "maximum": 10.0,
+      "visible_if": "algorithm == 'tv'"
     }
   ],
   "children": [

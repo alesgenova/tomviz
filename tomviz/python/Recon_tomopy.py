@@ -2,13 +2,13 @@ import numpy as np
 import tomopy
 
 
-def transform(dataset, algorithm='gridrec', num_iter=5):
+def transform(dataset, algorithm='gridrec', num_iter=5, reg_par=0.1):
     data = dataset.active_scalars
     tilt_axis = dataset.tilt_axis
 
     # TomoPy wants the tilt axis to be zero, so ensure that is true
     if tilt_axis == 2:
-        data = np.transpose(data, (2, 0, 1))
+        data = np.ascontiguousarray(np.transpose(data, (2, 0, 1)))
 
     # Normalize to [0, 1]
     data = data.astype(np.float32)
@@ -19,8 +19,10 @@ def transform(dataset, algorithm='gridrec', num_iter=5):
 
     # Reconstruct
     recon_kwargs = {}
-    if algorithm in ('mlem', 'ospml_hybrid'):
+    if algorithm in ('sirt', 'art', 'tv', 'mlem', 'ospml_hybrid'):
         recon_kwargs['num_iter'] = num_iter
+    if algorithm == 'tv':
+        recon_kwargs['reg_par'] = reg_par
 
     rec = tomopy.recon(data, angles_rad, center=center, algorithm=algorithm,
                        **recon_kwargs)
