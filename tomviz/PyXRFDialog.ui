@@ -85,7 +85,14 @@
         </property>
        </widget>
       </item>
-      <item row="3" column="0" colspan="2">
+      <item row="3" column="0">
+       <widget class="QCheckBox" name="skipDownloads">
+        <property name="text">
+         <string>Skip downloads</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="1">
        <widget class="QCheckBox" name="redownloadSuccessful">
         <property name="text">
          <string>Re-download successful scans?</string>

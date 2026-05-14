@@ -23,6 +23,7 @@ public:
   QString workingDirectory() const;
   QString scanRange() const;
   QString skipScanIds() const;
+  bool skipDownloads() const;
   bool redownloadSuccessful() const;
   QString parametersFile() const;
   QString icName() const;

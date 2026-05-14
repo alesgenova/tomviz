@@ -32,10 +32,17 @@
       "default": "[]"
     },
     {
+      "name": "skip_downloads",
+      "label": "Skip Downloads",
+      "type": "bool",
+      "default": false
+    },
+    {
       "name": "redownload_successful",
       "label": "Re-download Successful Scans",
       "type": "bool",
-      "default": false
+      "default": false,
+      "visible_if": "skip_downloads == false"
     },
     {
       "name": "parameters_file",

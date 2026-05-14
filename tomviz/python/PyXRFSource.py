@@ -175,6 +175,7 @@ class PyXRFSource(tomviz.nodes.SourceNode):
                 working_directory: str = '',
                 scan_range: str = '',
                 skip_scan_ids: str = '[]',
+                skip_downloads: bool = False,
                 redownload_successful: bool = False,
                 parameters_file: str = '',
                 ic_name: str = 'sclr1_ch4',
@@ -184,7 +185,7 @@ class PyXRFSource(tomviz.nodes.SourceNode):
         working_dir = Path(working_directory)
         skip_ids: list[int] = json.loads(skip_scan_ids) if skip_scan_ids else []
 
-        if scan_range:
+        if scan_range and not skip_downloads:
             _run_make_hdf5(
                 pyxrf_utils_command, working_dir,
                 scan_range, skip_ids, redownload_successful,

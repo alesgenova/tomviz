@@ -145,6 +145,7 @@ public:
                          pyxrfDialog->workingDirectory());
     source->setParameter("scan_range", pyxrfDialog->scanRange());
     source->setParameter("skip_scan_ids", pyxrfDialog->skipScanIds());
+    source->setParameter("skip_downloads", pyxrfDialog->skipDownloads());
     source->setParameter("redownload_successful",
                          pyxrfDialog->redownloadSuccessful());
     source->setParameter("parameters_file", pyxrfDialog->parametersFile());

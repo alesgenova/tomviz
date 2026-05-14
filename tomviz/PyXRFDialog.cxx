@@ -104,6 +104,12 @@ public:
     connect(ui.selectCsvOutput, &QPushButton::clicked, this,
             &Internal::selectCsvOutput);
 
+    connect(ui.skipDownloads, &QCheckBox::toggled, this,
+            [this](bool checked) {
+              ui.redownloadSuccessful->setEnabled(!checked);
+              ui.downloadData->setEnabled(!checked);
+            });
+
     connect(ui.downloadData, &QPushButton::clicked, this,
             &Internal::onDownloadData);
 
@@ -178,6 +184,9 @@ public:
 
   QString scanRange() const { return ui.scanRange->text().trimmed(); }
   void setScanRange(const QString& s) { ui.scanRange->setText(s); }
+
+  bool skipDownloads() const { return ui.skipDownloads->isChecked(); }
+  void setSkipDownloads(bool b) { ui.skipDownloads->setChecked(b); }
 
   bool redownloadSuccessful() const { return ui.redownloadSuccessful->isChecked(); }
   void setRedownloadSuccessful(bool b) { ui.redownloadSuccessful->setChecked(b); }
@@ -710,6 +719,7 @@ public:
       settings->value("workingDirectory", defaultWorkingDirectory())
         .toString());
     setScanRange(settings->value("scanRange", "").toString());
+    setSkipDownloads(settings->value("skipDownloads", false).toBool());
     setRedownloadSuccessful(
       settings->value("redownloadSuccessful", false).toBool());
     ui.filterSidsString->setText(
@@ -740,6 +750,7 @@ public:
     settings->setValue("pyxrfUtilsCommand", command());
     settings->setValue("workingDirectory", workingDirectory());
     settings->setValue("scanRange", scanRange());
+    settings->setValue("skipDownloads", skipDownloads());
     settings->setValue("redownloadSuccessful", redownloadSuccessful());
     settings->setValue("filterSidsString",
                        ui.filterSidsString->text().trimmed());
@@ -789,6 +800,11 @@ QString PyXRFDialog::scanRange() const
 QString PyXRFDialog::skipScanIds() const
 {
   return m_internal->skipScanIds();
+}
+
+bool PyXRFDialog::skipDownloads() const
+{
+  return m_internal->skipDownloads();
 }
 
 bool PyXRFDialog::redownloadSuccessful() const
