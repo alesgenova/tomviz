@@ -1427,10 +1427,10 @@ TEST_F(PipelineLibTest, ReaderSourceNodeVTIRoundTrip)
   ASSERT_TRUE(readerNode->execute());
   EXPECT_EQ(readerNode->state(), NodeState::Current);
 
-  // Verify output
+  // Verify output - VTI data without tilt angles is typed as Volume.
   auto portData = readerNode->outputPort("volume")->data();
   EXPECT_TRUE(portData.isValid());
-  EXPECT_EQ(portData.type(), PortType::ImageData);
+  EXPECT_EQ(portData.type(), PortType::Volume);
 
   auto readVolume = portData.value<VolumeDataPtr>();
   ASSERT_TRUE(readVolume && readVolume->isValid());

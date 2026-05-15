@@ -160,10 +160,10 @@ bool SegmentSink::runSegmentation(vtkImageData* input)
 {
   m_segmentedData->DeepCopy(input);
 
-  bool ownInterpreter = false;
+  // Ensure Python is initialized. Never finalize - C extension modules
+  // like numpy cannot be re-loaded after finalize_interpreter().
   if (!Py_IsInitialized()) {
     py::initialize_interpreter();
-    ownInterpreter = true;
   }
 
   bool success = false;
@@ -185,10 +185,6 @@ bool SegmentSink::runSegmentation(vtkImageData* input)
     qWarning("SegmentSink Python error: %s", e.what());
   } catch (const std::exception& e) {
     qWarning("SegmentSink error: %s", e.what());
-  }
-
-  if (ownInterpreter) {
-    py::finalize_interpreter();
   }
 
   return success;
