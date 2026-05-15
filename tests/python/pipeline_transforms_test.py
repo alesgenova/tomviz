@@ -163,3 +163,81 @@ def test_threshold_produces_binary_mask():
     expected = ((arr >= 1.5) & (arr <= 3.5)).astype(np.float32)
     np.testing.assert_array_equal(mask, expected)
     assert mask.dtype == np.float32
+
+
+# ---- CylindricalCrop (legacy operator) ------------------------------------
+
+
+def _run_cylindrical_crop(
+    arr: np.ndarray, **kwargs: float,
+) -> np.ndarray:
+    from pathlib import Path
+
+    from tomviz.pipeline.transforms.legacy_python import (
+        LegacyPythonTransform,
+    )
+
+    op_dir = (Path(__file__).parent / '..' / '..' / 'tomviz'
+              / 'python').resolve()
+    desc = (op_dir / 'CylindricalCrop.json').read_text()
+    script = (op_dir / 'CylindricalCrop.py').read_text()
+
+    t = LegacyPythonTransform()
+    t.deserialize({'description': desc, 'script': script,
+                   'arguments': kwargs})
+
+    ds = Dataset({'ImageScalars': arr.copy()}, 'ImageScalars')
+    ds.spacing = (1.0, 1.0, 1.0)
+    result = t.transform({'volume': PortData(ds, 'ImageData')})
+    return result[t._primary_output_name].payload.active_scalars
+
+
+def test_cylindrical_crop_defaults_preserve_center() -> None:
+    """With default params (center=volume center, radius=min(nx,ny)/2),
+    the center voxel should always be preserved."""
+    arr = np.ones((10, 10, 10), dtype=np.float32)
+    out = _run_cylindrical_crop(arr)
+    assert out[5, 5, 5] == 1.0
+
+
+def test_cylindrical_crop_zeros_corners() -> None:
+    """Corners of a cube should be outside the default cylinder."""
+    arr = np.ones((10, 10, 10), dtype=np.float32)
+    out = _run_cylindrical_crop(arr)
+    assert out[0, 0, 5] == 0.0
+    assert out[9, 9, 5] == 0.0
+    assert out[0, 9, 5] == 0.0
+    assert out[9, 0, 5] == 0.0
+
+
+def test_cylindrical_crop_custom_fill_value() -> None:
+    arr = np.ones((10, 10, 10), dtype=np.float32)
+    out = _run_cylindrical_crop(arr, fill_value=-999.0)
+    assert out[0, 0, 0] == -999.0
+
+
+def test_cylindrical_crop_small_radius() -> None:
+    """A very small radius should zero out almost everything."""
+    arr = np.ones((10, 10, 10), dtype=np.float32)
+    out = _run_cylindrical_crop(arr, radius=0.5)
+    kept = np.count_nonzero(out)
+    assert kept < arr.size * 0.05  # less than 5% preserved
+
+
+def test_cylindrical_crop_large_radius_preserves_all() -> None:
+    """A very large radius should keep everything."""
+    arr = np.arange(1000, dtype=np.float32).reshape((10, 10, 10))
+    out = _run_cylindrical_crop(arr, radius=100.0)
+    np.testing.assert_array_equal(out, arr)
+
+
+def test_cylindrical_crop_custom_axis() -> None:
+    """With axis along X, the crop should be cylindrical around X."""
+    arr = np.ones((10, 10, 10), dtype=np.float32)
+    out = _run_cylindrical_crop(
+        arr, axis_x=1.0, axis_y=0.0, axis_z=0.0, radius=2.0,
+    )
+    # Center of YZ face should be preserved
+    assert out[0, 5, 5] == 1.0
+    # Corner of YZ face should be zeroed
+    assert out[0, 0, 0] == 0.0

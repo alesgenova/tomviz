@@ -3072,6 +3072,537 @@ TEST_F(PipelineLibTest, IsVolumeTypeHelper)
   EXPECT_FALSE(isVolumeType(PortType::None));
 }
 
+// --- Sink property and serialization tests ---
+
+TEST_F(PipelineLibTest, ContourSinkPropertyDefaults)
+{
+  ContourSink sink;
+  EXPECT_EQ(sink.label(), "Contour");
+  EXPECT_DOUBLE_EQ(sink.isoValue(), 0.0);
+  EXPECT_DOUBLE_EQ(sink.ambient(), 0.0);
+  EXPECT_DOUBLE_EQ(sink.diffuse(), 1.0);
+  EXPECT_DOUBLE_EQ(sink.specular(), 1.0);
+  EXPECT_DOUBLE_EQ(sink.specularPower(), 100.0);
+  EXPECT_EQ(sink.representation(), 2); // VTK_SURFACE
+  EXPECT_TRUE(sink.mapScalars());
+  EXPECT_FALSE(sink.useSolidColor());
+  EXPECT_FALSE(sink.colorByArray());
+  EXPECT_TRUE(sink.isColorMapNeeded());
+}
+
+TEST_F(PipelineLibTest, ContourSinkPropertySetters)
+{
+  ContourSink sink;
+  sink.setIsoValue(42.5);
+  EXPECT_DOUBLE_EQ(sink.isoValue(), 42.5);
+
+  sink.setOpacity(0.7);
+  EXPECT_DOUBLE_EQ(sink.opacity(), 0.7);
+
+  sink.setAmbient(0.3);
+  EXPECT_DOUBLE_EQ(sink.ambient(), 0.3);
+
+  sink.setDiffuse(0.5);
+  EXPECT_DOUBLE_EQ(sink.diffuse(), 0.5);
+
+  sink.setSpecular(0.8);
+  EXPECT_DOUBLE_EQ(sink.specular(), 0.8);
+
+  sink.setSpecularPower(50.0);
+  EXPECT_DOUBLE_EQ(sink.specularPower(), 50.0);
+
+  sink.setRepresentation(1); // wireframe
+  EXPECT_EQ(sink.representation(), 1);
+  EXPECT_EQ(sink.representationString(), "Wireframe");
+
+  sink.setRepresentationString("Points");
+  EXPECT_EQ(sink.representation(), 0);
+
+  sink.setUseSolidColor(true);
+  EXPECT_TRUE(sink.useSolidColor());
+
+  sink.setMapScalars(false);
+  EXPECT_FALSE(sink.mapScalars());
+
+  sink.setColorByArray(true);
+  EXPECT_TRUE(sink.colorByArray());
+
+  sink.setColorByArrayName("TestArray");
+  EXPECT_EQ(sink.colorByArrayName(), "TestArray");
+
+  sink.setActiveScalars(2);
+  EXPECT_EQ(sink.activeScalars(), 2);
+}
+
+TEST_F(PipelineLibTest, ContourSinkSerializationRoundTrip)
+{
+  ContourSink sink;
+  sink.setIsoValue(123.0);
+  sink.setOpacity(0.5);
+  sink.setAmbient(0.2);
+  sink.setDiffuse(0.8);
+  sink.setSpecular(0.6);
+  sink.setSpecularPower(75.0);
+  sink.setRepresentationString("Wireframe");
+  sink.setUseSolidColor(true);
+  sink.setQColor(QColor(255, 0, 128));
+  sink.setMapScalars(false);
+  sink.setColorByArray(true);
+  sink.setColorByArrayName("MyArray");
+
+  auto json = sink.serialize();
+
+  ContourSink restored;
+  EXPECT_TRUE(restored.deserialize(json));
+
+  EXPECT_DOUBLE_EQ(restored.isoValue(), 123.0);
+  EXPECT_DOUBLE_EQ(restored.opacity(), 0.5);
+  EXPECT_DOUBLE_EQ(restored.ambient(), 0.2);
+  EXPECT_DOUBLE_EQ(restored.diffuse(), 0.8);
+  EXPECT_DOUBLE_EQ(restored.specular(), 0.6);
+  EXPECT_DOUBLE_EQ(restored.specularPower(), 75.0);
+  EXPECT_EQ(restored.representationString(), "Wireframe");
+  EXPECT_TRUE(restored.useSolidColor());
+  EXPECT_EQ(restored.qcolor(), QColor(255, 0, 128));
+  EXPECT_FALSE(restored.mapScalars());
+  EXPECT_TRUE(restored.colorByArray());
+  EXPECT_EQ(restored.colorByArrayName(), "MyArray");
+}
+
+TEST_F(PipelineLibTest, SliceSinkPropertyDefaults)
+{
+  SliceSink sink;
+  EXPECT_EQ(sink.label(), "Slice");
+  EXPECT_EQ(sink.direction(), SliceSink::XY);
+  EXPECT_TRUE(sink.isOrtho());
+  EXPECT_DOUBLE_EQ(sink.opacity(), 1.0);
+  EXPECT_EQ(sink.sliceThickness(), 1);
+  EXPECT_EQ(sink.thickSliceMode(), SliceSink::Mean);
+  EXPECT_FALSE(sink.textureInterpolate());
+  EXPECT_TRUE(sink.showArrow());
+  EXPECT_TRUE(sink.mapScalars());
+  EXPECT_TRUE(sink.isColorMapNeeded());
+}
+
+TEST_F(PipelineLibTest, SliceSinkPropertySetters)
+{
+  SliceSink sink;
+
+  sink.setDirection(SliceSink::YZ);
+  EXPECT_EQ(sink.direction(), SliceSink::YZ);
+  EXPECT_TRUE(sink.isOrtho());
+
+  sink.setDirection(SliceSink::Custom);
+  EXPECT_EQ(sink.direction(), SliceSink::Custom);
+  EXPECT_FALSE(sink.isOrtho());
+
+  sink.setOpacity(0.4);
+  EXPECT_DOUBLE_EQ(sink.opacity(), 0.4);
+
+  sink.setSliceThickness(5);
+  EXPECT_EQ(sink.sliceThickness(), 5);
+
+  sink.setThickSliceMode(SliceSink::Sum);
+  EXPECT_EQ(sink.thickSliceMode(), SliceSink::Sum);
+
+  sink.setTextureInterpolate(true);
+  EXPECT_TRUE(sink.textureInterpolate());
+
+  sink.setShowArrow(false);
+  EXPECT_FALSE(sink.showArrow());
+
+  sink.setMapScalars(false);
+  EXPECT_FALSE(sink.mapScalars());
+
+  sink.setActiveScalars(3);
+  EXPECT_EQ(sink.activeScalars(), 3);
+
+  sink.setPlaneCenter(1.0, 2.0, 3.0);
+  double center[3];
+  sink.planeCenter(center);
+  EXPECT_DOUBLE_EQ(center[0], 1.0);
+  EXPECT_DOUBLE_EQ(center[1], 2.0);
+  EXPECT_DOUBLE_EQ(center[2], 3.0);
+
+  sink.setPlaneNormal(0.0, 1.0, 0.0);
+  double normal[3];
+  sink.planeNormal(normal);
+  EXPECT_DOUBLE_EQ(normal[0], 0.0);
+  EXPECT_DOUBLE_EQ(normal[1], 1.0);
+  EXPECT_DOUBLE_EQ(normal[2], 0.0);
+}
+
+TEST_F(PipelineLibTest, SliceSinkSerializationRoundTrip)
+{
+  SliceSink sink;
+  sink.setDirection(SliceSink::XZ);
+  sink.setSlice(7);
+  sink.setOpacity(0.6);
+  sink.setSliceThickness(3);
+  sink.setThickSliceMode(SliceSink::Max);
+  sink.setTextureInterpolate(true);
+  sink.setShowArrow(false);
+  sink.setMapScalars(false);
+
+  auto json = sink.serialize();
+
+  SliceSink restored;
+  EXPECT_TRUE(restored.deserialize(json));
+
+  EXPECT_EQ(restored.direction(), SliceSink::XZ);
+  EXPECT_EQ(restored.slice(), 7);
+  EXPECT_DOUBLE_EQ(restored.opacity(), 0.6);
+  EXPECT_EQ(restored.sliceThickness(), 3);
+  EXPECT_EQ(restored.thickSliceMode(), SliceSink::Max);
+  EXPECT_TRUE(restored.textureInterpolate());
+  EXPECT_FALSE(restored.showArrow());
+  EXPECT_FALSE(restored.mapScalars());
+}
+
+TEST_F(PipelineLibTest, ThresholdSinkPropertyDefaults)
+{
+  ThresholdSink sink;
+  EXPECT_EQ(sink.label(), "Threshold");
+  EXPECT_DOUBLE_EQ(sink.lowerThreshold(), 0.0);
+  EXPECT_DOUBLE_EQ(sink.upperThreshold(), 1.0);
+  EXPECT_TRUE(sink.mapScalars());
+  EXPECT_TRUE(sink.isColorMapNeeded());
+  EXPECT_FALSE(sink.colorByArray());
+}
+
+TEST_F(PipelineLibTest, ThresholdSinkPropertySetters)
+{
+  ThresholdSink sink;
+
+  sink.setThresholdRange(10.0, 90.0);
+  EXPECT_DOUBLE_EQ(sink.lowerThreshold(), 10.0);
+  EXPECT_DOUBLE_EQ(sink.upperThreshold(), 90.0);
+
+  // opacity/specular/representation require SM proxy (initialize with view),
+  // so we only test member-variable-backed properties here.
+
+  sink.setMapScalars(false);
+  EXPECT_FALSE(sink.mapScalars());
+
+  sink.setColorByArray(true);
+  EXPECT_TRUE(sink.colorByArray());
+  sink.setColorByArrayName("Custom");
+  EXPECT_EQ(sink.colorByArrayName(), "Custom");
+}
+
+TEST_F(PipelineLibTest, ThresholdSinkSerializationRoundTrip)
+{
+  ThresholdSink sink;
+  sink.setThresholdRange(25.0, 75.0);
+  sink.setMapScalars(false);
+  sink.setColorByArray(true);
+  sink.setColorByArrayName("Arr");
+
+  auto json = sink.serialize();
+
+  ThresholdSink restored;
+  EXPECT_TRUE(restored.deserialize(json));
+
+  EXPECT_DOUBLE_EQ(restored.lowerThreshold(), 25.0);
+  EXPECT_DOUBLE_EQ(restored.upperThreshold(), 75.0);
+  EXPECT_FALSE(restored.mapScalars());
+  EXPECT_TRUE(restored.colorByArray());
+  EXPECT_EQ(restored.colorByArrayName(), "Arr");
+}
+
+TEST_F(PipelineLibTest, OutlineSinkPropertyDefaults)
+{
+  OutlineSink sink;
+  EXPECT_EQ(sink.label(), "Outline");
+  EXPECT_FALSE(sink.showGridAxes());
+  EXPECT_FALSE(sink.generateGrid());
+  EXPECT_FALSE(sink.useCustomAxesTitles());
+  EXPECT_EQ(sink.xTitle(), "X");
+  EXPECT_EQ(sink.yTitle(), "Y");
+  EXPECT_EQ(sink.zTitle(), "Z");
+}
+
+TEST_F(PipelineLibTest, OutlineSinkPropertySetters)
+{
+  OutlineSink sink;
+
+  sink.setShowGridAxes(true);
+  EXPECT_TRUE(sink.showGridAxes());
+
+  sink.setGenerateGrid(true);
+  EXPECT_TRUE(sink.generateGrid());
+
+  sink.setUseCustomAxesTitles(true);
+  EXPECT_TRUE(sink.useCustomAxesTitles());
+
+  sink.setXTitle("Width");
+  EXPECT_EQ(sink.xTitle(), "Width");
+
+  sink.setYTitle("Height");
+  EXPECT_EQ(sink.yTitle(), "Height");
+
+  sink.setZTitle("Depth");
+  EXPECT_EQ(sink.zTitle(), "Depth");
+
+  sink.setColor(0.1, 0.2, 0.3);
+  double rgb[3];
+  sink.color(rgb);
+  EXPECT_DOUBLE_EQ(rgb[0], 0.1);
+  EXPECT_DOUBLE_EQ(rgb[1], 0.2);
+  EXPECT_DOUBLE_EQ(rgb[2], 0.3);
+}
+
+TEST_F(PipelineLibTest, OutlineSinkSerializationRoundTrip)
+{
+  OutlineSink sink;
+  sink.setColor(0.5, 0.6, 0.7);
+  sink.setShowGridAxes(true);
+  sink.setGenerateGrid(true);
+  sink.setUseCustomAxesTitles(true);
+  sink.setXTitle("A");
+  sink.setYTitle("B");
+  sink.setZTitle("C");
+
+  auto json = sink.serialize();
+
+  OutlineSink restored;
+  EXPECT_TRUE(restored.deserialize(json));
+
+  EXPECT_TRUE(restored.showGridAxes());
+  EXPECT_TRUE(restored.generateGrid());
+  EXPECT_TRUE(restored.useCustomAxesTitles());
+  EXPECT_EQ(restored.xTitle(), "A");
+  EXPECT_EQ(restored.yTitle(), "B");
+  EXPECT_EQ(restored.zTitle(), "C");
+
+  double rgb[3];
+  restored.color(rgb);
+  EXPECT_DOUBLE_EQ(rgb[0], 0.5);
+  EXPECT_DOUBLE_EQ(rgb[1], 0.6);
+  EXPECT_DOUBLE_EQ(rgb[2], 0.7);
+}
+
+TEST_F(PipelineLibTest, PlotSinkPropertyDefaults)
+{
+  PlotSink sink;
+  EXPECT_EQ(sink.label(), "Plot");
+  EXPECT_EQ(sink.xLabel(), "");
+  EXPECT_EQ(sink.yLabel(), "");
+  EXPECT_FALSE(sink.xLogScale());
+  EXPECT_FALSE(sink.yLogScale());
+}
+
+TEST_F(PipelineLibTest, PlotSinkPropertySetters)
+{
+  PlotSink sink;
+  sink.setXLabel("Energy (eV)");
+  EXPECT_EQ(sink.xLabel(), "Energy (eV)");
+
+  sink.setYLabel("Counts");
+  EXPECT_EQ(sink.yLabel(), "Counts");
+
+  sink.setXLogScale(true);
+  EXPECT_TRUE(sink.xLogScale());
+
+  sink.setYLogScale(true);
+  EXPECT_TRUE(sink.yLogScale());
+}
+
+TEST_F(PipelineLibTest, PlotSinkSerializationRoundTrip)
+{
+  PlotSink sink;
+  sink.setXLabel("Frequency");
+  sink.setYLabel("Amplitude");
+  sink.setXLogScale(true);
+  sink.setYLogScale(false);
+
+  auto json = sink.serialize();
+
+  PlotSink restored;
+  EXPECT_TRUE(restored.deserialize(json));
+
+  EXPECT_EQ(restored.xLabel(), "Frequency");
+  EXPECT_EQ(restored.yLabel(), "Amplitude");
+  EXPECT_TRUE(restored.xLogScale());
+  EXPECT_FALSE(restored.yLogScale());
+}
+
+TEST_F(PipelineLibTest, MoleculeSinkPropertySetters)
+{
+  MoleculeSink sink;
+
+  sink.setBallRadius(0.5);
+  EXPECT_NEAR(sink.ballRadius(), 0.5, 1e-6);
+
+  sink.setBondRadius(0.15);
+  EXPECT_NEAR(sink.bondRadius(), 0.15, 1e-6);
+}
+
+TEST_F(PipelineLibTest, MoleculeSinkSerializationRoundTrip)
+{
+  MoleculeSink sink;
+  sink.setBallRadius(0.8);
+  sink.setBondRadius(0.2);
+
+  auto json = sink.serialize();
+
+  MoleculeSink restored;
+  EXPECT_TRUE(restored.deserialize(json));
+
+  EXPECT_NEAR(restored.ballRadius(), 0.8, 1e-6);
+  EXPECT_NEAR(restored.bondRadius(), 0.2, 1e-6);
+}
+
+TEST_F(PipelineLibTest, ScaleCubeSinkPropertyDefaults)
+{
+  ScaleCubeSink sink;
+  EXPECT_EQ(sink.label(), "Scale Cube");
+  EXPECT_FALSE(sink.adaptiveScaling());
+}
+
+TEST_F(PipelineLibTest, ScaleCubeSinkPropertySetters)
+{
+  ScaleCubeSink sink;
+
+  sink.setSideLength(5.0);
+  EXPECT_DOUBLE_EQ(sink.sideLength(), 5.0);
+
+  sink.setAdaptiveScaling(true);
+  EXPECT_TRUE(sink.adaptiveScaling());
+
+  sink.setShowAnnotation(false);
+  EXPECT_FALSE(sink.showAnnotation());
+
+  sink.setLengthUnit("nm");
+  EXPECT_EQ(sink.lengthUnit(), "nm");
+}
+
+TEST_F(PipelineLibTest, VolumeSinkPropertySetters)
+{
+  VolumeSink sink;
+
+  sink.setLighting(true);
+  EXPECT_TRUE(sink.lighting());
+
+  sink.setLighting(false);
+  EXPECT_FALSE(sink.lighting());
+
+  sink.setJittering(true);
+  EXPECT_TRUE(sink.jittering());
+
+  sink.setJittering(false);
+  EXPECT_FALSE(sink.jittering());
+}
+
+TEST_F(PipelineLibTest, SinkNodeFactoryCreation)
+{
+  auto contour = NodeFactory::create("sink.contour");
+  EXPECT_NE(contour, nullptr);
+  EXPECT_NE(dynamic_cast<ContourSink*>(contour), nullptr);
+  delete contour;
+
+  auto slice = NodeFactory::create("sink.slice");
+  EXPECT_NE(slice, nullptr);
+  EXPECT_NE(dynamic_cast<SliceSink*>(slice), nullptr);
+  delete slice;
+
+  auto threshold = NodeFactory::create("sink.threshold");
+  EXPECT_NE(threshold, nullptr);
+  EXPECT_NE(dynamic_cast<ThresholdSink*>(threshold), nullptr);
+  delete threshold;
+
+  auto outline = NodeFactory::create("sink.outline");
+  EXPECT_NE(outline, nullptr);
+  EXPECT_NE(dynamic_cast<OutlineSink*>(outline), nullptr);
+  delete outline;
+
+  auto volume = NodeFactory::create("sink.volume");
+  EXPECT_NE(volume, nullptr);
+  EXPECT_NE(dynamic_cast<VolumeSink*>(volume), nullptr);
+  delete volume;
+
+  auto plot = NodeFactory::create("sink.plot");
+  EXPECT_NE(plot, nullptr);
+  EXPECT_NE(dynamic_cast<PlotSink*>(plot), nullptr);
+  delete plot;
+
+  auto molecule = NodeFactory::create("sink.molecule");
+  EXPECT_NE(molecule, nullptr);
+  EXPECT_NE(dynamic_cast<MoleculeSink*>(molecule), nullptr);
+  delete molecule;
+
+  auto ruler = NodeFactory::create("sink.ruler");
+  EXPECT_NE(ruler, nullptr);
+  EXPECT_NE(dynamic_cast<RulerSink*>(ruler), nullptr);
+  delete ruler;
+
+  auto scaleCube = NodeFactory::create("sink.scaleCube");
+  EXPECT_NE(scaleCube, nullptr);
+  EXPECT_NE(dynamic_cast<ScaleCubeSink*>(scaleCube), nullptr);
+  delete scaleCube;
+
+  auto segment = NodeFactory::create("sink.segment");
+  EXPECT_NE(segment, nullptr);
+  EXPECT_NE(dynamic_cast<SegmentSink*>(segment), nullptr);
+  delete segment;
+
+  auto volumeStats = NodeFactory::create("sink.volumeStats");
+  EXPECT_NE(volumeStats, nullptr);
+  EXPECT_NE(dynamic_cast<VolumeStatsSink*>(volumeStats), nullptr);
+  delete volumeStats;
+}
+
+TEST_F(PipelineLibTest, VolumeStatsSinkComputesCorrectStats)
+{
+  auto* source = new SphereSource();
+  source->setDimensions(8, 8, 8);
+  pipeline->addNode(source);
+  source->execute();
+
+  auto* stats = new VolumeStatsSink();
+  pipeline->addNode(stats);
+  pipeline->createLink(source->outputPort("volume"),
+                       stats->inputPort("volume"));
+
+  auto* future = pipeline->execute();
+  EXPECT_TRUE(future->isFinished());
+  EXPECT_TRUE(future->succeeded());
+  EXPECT_TRUE(stats->hasResults());
+  EXPECT_EQ(stats->voxelCount(), 8 * 8 * 8);
+  EXPECT_LE(stats->min(), stats->mean());
+  EXPECT_LE(stats->mean(), stats->max());
+}
+
+TEST_F(PipelineLibTest, SinkInputPortTypes)
+{
+  // Volume sinks accept ImageData
+  ContourSink contour;
+  EXPECT_NE(contour.inputPort("volume"), nullptr);
+
+  SliceSink slice;
+  EXPECT_NE(slice.inputPort("volume"), nullptr);
+
+  ThresholdSink threshold;
+  EXPECT_NE(threshold.inputPort("volume"), nullptr);
+
+  OutlineSink outline;
+  EXPECT_NE(outline.inputPort("volume"), nullptr);
+
+  VolumeSink vol;
+  EXPECT_NE(vol.inputPort("volume"), nullptr);
+
+  ClipSink clip;
+  EXPECT_NE(clip.inputPort("volume"), nullptr);
+
+  // PlotSink accepts Table data
+  PlotSink plot;
+  EXPECT_NE(plot.inputPort("table"), nullptr);
+
+  // MoleculeSink accepts Molecule data
+  MoleculeSink mol;
+  EXPECT_NE(mol.inputPort("molecule"), nullptr);
+}
+
 int main(int argc, char** argv)
 {
   QApplication app(argc, argv);
