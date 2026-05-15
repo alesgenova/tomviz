@@ -97,6 +97,16 @@ VolumeSinkWidget::VolumeSinkWidget(QWidget* parent_)
   connect(m_ui->soliditySlider, &DoubleSliderWidget::valueEdited, this,
           &VolumeSinkWidget::solidityChanged);
 
+  // TODO: multi-volume rendering is not yet implemented for VolumeSink.
+  // The legacy VolumeManager only works with ModuleVolume. When re-enabling,
+  // the per-volume scalar array selection must be fixed: the shared
+  // vtkGPUVolumeRayCastMapper in VolumeManager doesn't propagate each
+  // volume's SelectScalarArray() call, so multiple volumes on the same
+  // dataset all render whichever scalar was last set as active on the
+  // shared vtkImageData. Fix by giving each volume port a shallow-copied
+  // vtkImageData with the correct active scalar, or by using per-port
+  // SetInputArrayToProcess() on the shared mapper.
+  m_ui->cbMultiVolume->setVisible(false);
   m_ui->groupRgbaMappingRange->setVisible(false);
   m_ui->rgbaMappingComponentLabel->setVisible(false);
   m_ui->rgbaMappingComponent->setVisible(false);
