@@ -6,7 +6,10 @@
 
 #include "LegacyModuleSink.h"
 
+#include <QPointer>
 #include <vtkNew.h>
+
+class QComboBox;
 
 class vtkColorTransferFunction;
 class vtkPiecewiseFunction;
@@ -93,12 +96,14 @@ protected:
 
 private:
   void applyActiveScalars();
+  void populateScalarsCombo();
 
   vtkNew<SmartVolumeMapper> m_volumeMapper;
   vtkNew<vtkVolume> m_volume;
   vtkNew<vtkVolumeProperty> m_volumeProperty;
   vtkNew<vtkPiecewiseFunction> m_gradientOpacity;
 
+  QPointer<QComboBox> m_scalarsCombo;
   int m_activeScalars = -1;
 };
 

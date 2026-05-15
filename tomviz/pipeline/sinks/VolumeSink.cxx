@@ -361,33 +361,12 @@ QWidget* VolumeSink::createSinkPropertiesWidget(QWidget* parent)
   int insertRow = 0;
 
   // --- Active Scalars combo (row 0) ---
-  auto* scalarsCombo = new QComboBox(widget);
-  {
-    QSignalBlocker blocker(scalarsCombo);
-    scalarsCombo->addItem("Default", -1);
-
-    auto vol = volumeData();
-    if (vol && vol->isValid()) {
-      auto* pointData = vol->imageData()->GetPointData();
-      for (int i = 0; i < pointData->GetNumberOfArrays(); ++i) {
-        auto* array = pointData->GetArray(i);
-        if (array && array->GetName()) {
-          scalarsCombo->addItem(QString(array->GetName()), i);
-        }
-      }
-    }
-
-    if (m_activeScalars < 0) {
-      scalarsCombo->setCurrentIndex(0);
-    } else {
-      int idx = scalarsCombo->findData(m_activeScalars);
-      scalarsCombo->setCurrentIndex(idx >= 0 ? idx : 0);
-    }
-  }
-  widget->formLayout()->insertRow(insertRow++, "Active Scalars", scalarsCombo);
-  connect(scalarsCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-          this, [this, scalarsCombo](int idx) {
-            setActiveScalars(scalarsCombo->itemData(idx).toInt());
+  m_scalarsCombo = new QComboBox(widget);
+  populateScalarsCombo();
+  widget->formLayout()->insertRow(insertRow++, "Active Scalars", m_scalarsCombo);
+  connect(m_scalarsCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+          this, [this](int idx) {
+            setActiveScalars(m_scalarsCombo->itemData(idx).toInt());
           });
 
   // --- Separate Color Map checkbox ---
@@ -500,7 +479,40 @@ void VolumeSink::onMetadataChanged()
   m_volume->SetPosition(pos.data());
   m_volume->SetOrientation(orient.data());
   applyActiveScalars();
+  populateScalarsCombo();
   emit renderNeeded();
+}
+
+void VolumeSink::populateScalarsCombo()
+{
+  if (!m_scalarsCombo) {
+    return;
+  }
+
+  auto vol = volumeData();
+  if (!vol || !vol->isValid()) {
+    return;
+  }
+
+  QSignalBlocker blocker(m_scalarsCombo);
+
+  m_scalarsCombo->clear();
+  m_scalarsCombo->addItem("Default", -1);
+
+  auto* pointData = vol->imageData()->GetPointData();
+  for (int i = 0; i < pointData->GetNumberOfArrays(); ++i) {
+    auto* array = pointData->GetArray(i);
+    if (array && array->GetName()) {
+      m_scalarsCombo->addItem(QString(array->GetName()), i);
+    }
+  }
+
+  if (m_activeScalars < 0) {
+    m_scalarsCombo->setCurrentIndex(0);
+  } else {
+    int idx = m_scalarsCombo->findData(m_activeScalars);
+    m_scalarsCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+  }
 }
 
 } // namespace pipeline
