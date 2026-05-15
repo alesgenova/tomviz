@@ -17,7 +17,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
+#include <QInputDialog>
 #include <QLabel>
+#include <QMenu>
 #include <QMessageBox>
 #include <QPointer>
 #include <QProcess>
@@ -112,6 +114,84 @@ public:
       auto* header = new QTableWidgetItem(columns[i]);
       table->setHorizontalHeaderItem(i, header);
     }
+
+    table->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+
+    table->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(table, &QWidget::customContextMenuRequested, this,
+            &Internal::showTableContextMenu);
+  }
+
+  void showTableContextMenu(const QPoint& pos)
+  {
+    auto* table = ui.table;
+    auto selectedRows = table->selectionModel()->selectedRows();
+    if (selectedRows.isEmpty()) {
+      return;
+    }
+
+    QSet<QString> commonVersions;
+    bool first = true;
+    for (auto& index : selectedRows) {
+      int row = index.row();
+      auto sid = filteredSidList[row];
+      QSet<QString> versions(versionOptions[sid].begin(),
+                             versionOptions[sid].end());
+      if (first) {
+        commonVersions = versions;
+        first = false;
+      } else {
+        commonVersions &= versions;
+      }
+    }
+
+    QMenu menu(table);
+    auto* setVersionAction = menu.addAction("Set Version...");
+    if (commonVersions.isEmpty()) {
+      setVersionAction->setEnabled(false);
+      setVersionAction->setText("Set Version... (no shared versions)");
+    }
+    auto* chosen = menu.exec(table->viewport()->mapToGlobal(pos));
+    if (chosen != setVersionAction) {
+      return;
+    }
+
+    QStringList sortedVersions = commonVersions.values();
+    sortedVersions.sort();
+
+    int defaultIndex = 0;
+    QSet<QString> currentVersions;
+    for (auto& index : selectedRows) {
+      int row = index.row();
+      auto sid = filteredSidList[row];
+      auto idx = sidList.indexOf(sid);
+      currentVersions.insert(versionList[idx]);
+    }
+    if (currentVersions.size() == 1) {
+      int idx = sortedVersions.indexOf(*currentVersions.begin());
+      if (idx >= 0) {
+        defaultIndex = idx;
+      }
+    }
+
+    bool ok = false;
+    auto version = QInputDialog::getItem(
+      parent, "Set Version", "Version:", sortedVersions, defaultIndex,
+      false, &ok);
+    if (!ok) {
+      return;
+    }
+
+    for (auto& index : selectedRows) {
+      int row = index.row();
+      auto sid = filteredSidList[row];
+      auto idx = sidList.indexOf(sid);
+      versionList[idx] = version;
+    }
+
+    onSelectedVersionsChanged();
+    updateTable();
   }
 
   void importModule()
