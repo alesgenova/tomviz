@@ -66,6 +66,8 @@
 #include <vtkVector.h>
 #include <vtk_pugixml.h>
 
+#include <sstream>
+
 #include <QDebug>
 #include <QFileInfo>
 #include <QJsonArray>

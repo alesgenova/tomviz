@@ -796,7 +796,6 @@ set(tomviz_python_modules
   __init__.py
   _internal.py
   dataset.py
-  executor.py
   external_dataset.py
   fix_pdb.py
   nodes.py
@@ -853,7 +852,6 @@ endforeach()
 set(tomviz_python_pyxrf_modules
   __init__.py
   ic_names.py
-  load_output.py
   scan_metadata.py
   sids.py
 )
@@ -928,9 +926,9 @@ configure_file(tomvizPythonConfig.h.in tomvizPythonConfig.h @ONLY)
 add_library(tomvizlib STATIC ${SOURCES} ${accel_srcs})
 if(NOT WIN32)
   set_target_properties(tomvizlib PROPERTIES OUTPUT_NAME tomviz)
-  set_target_properties(tomvizlib PROPERTIES AUTOUIC_SEARCH_PATHS
-      "${CMAKE_CURRENT_SOURCE_DIR}/legacy;${CMAKE_CURRENT_SOURCE_DIR}/legacy/modules;${CMAKE_CURRENT_SOURCE_DIR}/legacy/operators;${CMAKE_CURRENT_SOURCE_DIR}/pipeline")
 endif()
+set_target_properties(tomvizlib PROPERTIES AUTOUIC_SEARCH_PATHS
+    "${CMAKE_CURRENT_SOURCE_DIR}/legacy;${CMAKE_CURRENT_SOURCE_DIR}/legacy/modules;${CMAKE_CURRENT_SOURCE_DIR}/legacy/operators;${CMAKE_CURRENT_SOURCE_DIR}/pipeline;${CMAKE_CURRENT_SOURCE_DIR}/pipeline/sinks")
 
 # Need to set this property so that in stack traces, tomviz symbols
 # can be resolved.
