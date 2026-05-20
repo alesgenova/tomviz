@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from tomviz.io_emd import load_dataset
-from tomviz.external_dataset import Dataset
+from tomviz.external_dataset import Dataset, LegacyDataset
 
 from utils import download_file, download_and_unzip_file
 
@@ -28,7 +28,7 @@ def hxn_xrf_example_output_dir(data_dir: Path) -> Path:
 
 
 @pytest.fixture(scope='function')
-def hxn_xrf_example_dataset(hxn_xrf_example_output_dir: Path) -> Dataset:
+def hxn_xrf_example_dataset(hxn_xrf_example_output_dir: Path) -> LegacyDataset:
     example_files = [
         'Pt_L.h5',
         'Zn_K.h5',
@@ -43,7 +43,7 @@ def hxn_xrf_example_dataset(hxn_xrf_example_output_dir: Path) -> Dataset:
         new_name = new_dataset.active_name
         dataset.arrays[new_name] = new_dataset.active_scalars
 
-    return dataset
+    return LegacyDataset.from_dataset(dataset)
 
 
 @pytest.fixture
