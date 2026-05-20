@@ -748,6 +748,7 @@ void HistogramWidget::onBrightnessAndContrastClicked()
   auto& dialog = *m_brightnessContrastDialog;
   dialog.setLayout(new QVBoxLayout);
   dialog.setWindowTitle("Brightness and Contrast");
+  dialog.resize(500, 160);
 
   m_brightnessContrastWidget =
     new BrightnessContrastWidget(m_volumeData, m_LUT, this);
