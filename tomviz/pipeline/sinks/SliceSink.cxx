@@ -161,7 +161,7 @@ bool SliceSink::finalize()
 
 void SliceSink::clearVisualization()
 {
-  if (m_widget) {
+  if (m_widget && m_widget->GetInteractor()) {
     m_widget->Off();
   }
 }
