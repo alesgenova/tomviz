@@ -10,6 +10,8 @@
 #include "Node.h"
 #include "OutputPort.h"
 #include "PipelineExecutor.h"
+#include "SinkGroupNode.h"
+#include "SinkNode.h"
 #include "TransformNode.h"
 
 #include <QMap>
@@ -50,6 +52,14 @@ void Pipeline::removeNode(Node* node)
 {
   if (!node || !m_nodes.contains(node)) {
     return;
+  }
+
+  // If this is a group node, remove all member sinks first.
+  if (auto* group = qobject_cast<SinkGroupNode*>(node)) {
+    const auto members = group->sinks();
+    for (auto* sink : members) {
+      removeNode(sink);
+    }
   }
 
   // Remove all links connected to this node
