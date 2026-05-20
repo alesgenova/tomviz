@@ -15,8 +15,6 @@ set(SOURCES
   ActiveObjects.h
   AddAlignReaction.cxx
   AddAlignReaction.h
-  AddExpressionReaction.cxx
-  AddExpressionReaction.h
   AddPythonSourceReaction.cxx
   AddPythonSourceReaction.h
   AddPythonTransformReaction.cxx
@@ -649,6 +647,7 @@ set(python_files
   Pad_Data.py
   BinVolumeByTwo.py
   BinTiltSeriesByTwo.py
+  DefaultCustomTransform.py
   DefaultITKTransform.py
   BinaryMinMaxCurvatureFlow.py
   ReinterpretSignedToUnsigned.py

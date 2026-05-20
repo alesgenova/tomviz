@@ -7,7 +7,6 @@
 #include <QMainWindow>
 #include <QMenu>
 
-#include "AddExpressionReaction.h"
 #include "AddPythonTransformReaction.h"
 #include "ArrayWranglerReaction.h"
 #include "CloneDataReaction.h"
@@ -35,9 +34,11 @@ void DataTransformMenu::buildTransforms()
   QMenu* menu = m_transformMenu;
   menu->clear();
 
+  auto customPythonAction = menu->addAction("Custom Transform");
+  menu->addSeparator();
+
   // === Data Management submenu ===
   QMenu* dataManagement = menu->addMenu("Data Management");
-  auto customPythonAction = dataManagement->addAction("Custom Transform");
   auto cropDataAction = dataManagement->addAction("Crop");
   auto cylindricalCropAction = dataManagement->addAction("Cylindrical Crop");
   auto convertDataAction = dataManagement->addAction("Convert to Float");
@@ -108,7 +109,9 @@ void DataTransformMenu::buildTransforms()
   auto similarityMetricsAction = metrics->addAction("Similarity Metrics");
 
   // Add our Python script reactions, these compose Python into menu entries.
-  new AddExpressionReaction(customPythonAction);
+  new AddPythonTransformReaction(
+    customPythonAction, "Custom Transform",
+    readInPythonScript("DefaultCustomTransform"));
   new CropReaction(cropDataAction, mainWindow);
   new AddPythonTransformReaction(
     cylindricalCropAction, "Cylindrical Crop",
@@ -273,7 +276,9 @@ void DataTransformMenu::buildSegmentation()
   auto segmentParticlesAction = segWorkflows->addAction("Segment Particles");
   auto segmentPoresAction = segWorkflows->addAction("Segment Pores");
 
-  new AddExpressionReaction(customPythonITKAction);
+  new AddPythonTransformReaction(
+    customPythonITKAction, "Custom ITK Transform",
+    readInPythonScript("DefaultITKTransform"));
   new AddPythonTransformReaction(binaryThresholdAction, "Binary Threshold",
                                  readInPythonScript("BinaryThreshold"),
                                  readInJSONDescription("BinaryThreshold"));
