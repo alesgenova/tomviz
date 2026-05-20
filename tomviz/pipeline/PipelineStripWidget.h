@@ -133,6 +133,7 @@ signals:
   void nodeDoubleClicked(Node* node);
   void linkRequested(OutputPort* from, InputPort* to);
   void leaveGroupRequested(Node* member, SinkGroupNode* group);
+  void deleteNodeRequested(Node* node);
 
 public slots:
   void rebuildLayout();

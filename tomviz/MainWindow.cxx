@@ -265,6 +265,13 @@ MainWindow::MainWindow(QWidget* parent, Qt::WindowFlags flags)
           this, &MainWindow::onLinkSelected);
   connect(m_pipelineStrip, &pipeline::PipelineStripWidget::selectionCleared,
           &ActiveObjects::instance(), &ActiveObjects::clearActiveSelection);
+  connect(m_pipelineStrip, &pipeline::PipelineStripWidget::deleteNodeRequested,
+          this, [this](pipeline::Node* node) {
+            auto* p = pipeline();
+            if (p && !p->isExecuting()) {
+              p->removeNode(node);
+            }
+          });
 
   // Sync ActiveObjects changes back to the strip widget and properties panel.
   // This ensures programmatic setActiveNode/Port/Link calls are reflected.

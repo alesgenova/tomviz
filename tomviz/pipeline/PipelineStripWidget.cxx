@@ -2682,8 +2682,13 @@ void PipelineStripWidget::keyPressEvent(QKeyEvent* event)
       break;
     case Qt::Key_Delete:
     case Qt::Key_Backspace:
-      if (!m_interactionLocked) {
-        showContextMenu(mapToGlobal(QPoint(0, 0)));
+      if (!m_interactionLocked && m_selectedIndex >= 0 &&
+          m_selectedIndex < m_layout.size()) {
+        auto& item = m_layout[m_selectedIndex];
+        if (item.type == LayoutItem::NodeCard ||
+            item.type == LayoutItem::GroupMemberCard) {
+          emit deleteNodeRequested(item.node);
+        }
       }
       break;
     default:
