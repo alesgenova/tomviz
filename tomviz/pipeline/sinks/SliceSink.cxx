@@ -149,7 +149,7 @@ bool SliceSink::initialize(vtkSMViewProxy* view)
 bool SliceSink::finalize()
 {
   if (m_widget) {
-    if (m_widget->GetInteractor()) {
+    if (m_widget->GetInteractor() && m_widget->GetEnabled()) {
       m_widget->InteractionOff();
       m_widget->Off();
     }

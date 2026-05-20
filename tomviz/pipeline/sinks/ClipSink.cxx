@@ -162,7 +162,7 @@ bool ClipSink::finalize()
     }
     // Order matters: InteractionOff/Off require a valid interactor,
     // so call them before clearing it.
-    if (m_widget->GetInteractor()) {
+    if (m_widget->GetInteractor() && m_widget->GetEnabled()) {
       m_widget->InteractionOff();
       m_widget->Off();
     }
