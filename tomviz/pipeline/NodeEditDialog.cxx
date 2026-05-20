@@ -201,6 +201,8 @@ void NodeEditDialog::restoreGeometry()
   QVariant saved = settings->value(key);
   if (!saved.isNull()) {
     resize(saved.toRect().size());
+  } else {
+    resize(900, 700);
   }
 }
 
