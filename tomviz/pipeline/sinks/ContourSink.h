@@ -18,6 +18,7 @@ class vtkActor;
 class vtkColorTransferFunction;
 class vtkDataSetMapper;
 class vtkFlyingEdges3D;
+class vtkProbeFilter;
 class vtkProperty;
 
 namespace tomviz {
@@ -116,11 +117,14 @@ protected:
   void updatePanel();
   bool applyActiveScalars();
   void updateColorArray();
+  void updateColorArrayProducer();
   void updateScalarArrayOptions();
 
 private:
   vtkNew<vtkActiveScalarsProducer> m_contourArrayProducer;
+  vtkNew<vtkActiveScalarsProducer> m_colorArrayProducer;
   vtkNew<vtkFlyingEdges3D> m_flyingEdges;
+  vtkNew<vtkProbeFilter> m_probeFilter;
   vtkNew<vtkDataSetMapper> m_mapper;
   vtkNew<vtkActor> m_actor;
   vtkNew<vtkProperty> m_property;

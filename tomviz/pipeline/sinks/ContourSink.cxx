@@ -19,6 +19,7 @@
 #include <vtkFlyingEdges3D.h>
 #include <vtkImageData.h>
 #include <vtkPointData.h>
+#include <vtkProbeFilter.h>
 #include <vtkProperty.h>
 #include <vtkPVRenderView.h>
 #include <vtkSMProxy.h>
@@ -38,6 +39,7 @@ ContourSink::ContourSink(QObject* parent) : LegacyModuleSink(parent)
   m_property->SetRepresentationToSurface();
 
   m_flyingEdges->SetInputConnection(m_contourArrayProducer->GetOutputPort());
+  m_flyingEdges->ComputeScalarsOn();
   m_mapper->SetInputConnection(m_flyingEdges->GetOutputPort());
   m_mapper->SetScalarModeToUsePointFieldData();
   m_mapper->SetColorModeToMapScalars();
@@ -167,7 +169,12 @@ void ContourSink::setIsoValue(double value)
   m_isoValueSet = true;
   m_flyingEdges->SetValue(0, value);
   m_flyingEdges->Update();
-  m_mapper->SetInputDataObject(m_flyingEdges->GetOutput());
+  if (m_colorByArray) {
+    m_probeFilter->Update();
+    m_mapper->SetInputDataObject(m_probeFilter->GetOutput());
+  } else {
+    m_mapper->SetInputDataObject(m_flyingEdges->GetOutput());
+  }
   if (m_controllers) {
     QSignalBlocker blocker(m_controllers);
     m_controllers->setIso(value);
@@ -317,6 +324,15 @@ bool ContourSink::colorByArray() const
 void ContourSink::setColorByArray(bool state)
 {
   m_colorByArray = state;
+  if (state) {
+    updateColorArrayProducer();
+    m_probeFilter->SetInputConnection(m_flyingEdges->GetOutputPort());
+    m_probeFilter->SetSourceConnection(m_colorArrayProducer->GetOutputPort());
+    m_mapper->SetInputConnection(m_probeFilter->GetOutputPort());
+  } else {
+    m_probeFilter->RemoveAllInputs();
+    m_mapper->SetInputConnection(m_flyingEdges->GetOutputPort());
+  }
   updateColorMap();
   emit renderNeeded();
 }
@@ -329,8 +345,23 @@ QString ContourSink::colorByArrayName() const
 void ContourSink::setColorByArrayName(const QString& name)
 {
   m_colorByArrayName = name;
+  if (m_colorByArray) {
+    updateColorArrayProducer();
+  }
   updateColorMap();
   emit renderNeeded();
+}
+
+void ContourSink::updateColorArrayProducer()
+{
+  auto vol = volumeData();
+  if (!vol || !vol->isValid()) {
+    m_colorArrayProducer->SetOutput(nullptr);
+    return;
+  }
+  m_colorArrayProducer->SetOutput(vol->imageData());
+  auto name = m_colorByArrayName.toStdString();
+  m_colorArrayProducer->SetActiveScalars(name.c_str());
 }
 
 // --- Active Scalars ---
