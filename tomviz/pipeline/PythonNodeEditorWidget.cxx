@@ -314,7 +314,11 @@ void PythonNodeEditorWidget::installJsonFormWidget()
     if (!input->hasData()) {
       continue;
     }
-    auto vol = input->data().value<VolumeDataPtr>();
+    auto portData = input->data();
+    if (!portData.isValid() || !isVolumeType(portData.type())) {
+      continue;
+    }
+    auto vol = portData.value<VolumeDataPtr>();
     if (!vol || !vol->isValid()) {
       continue;
     }

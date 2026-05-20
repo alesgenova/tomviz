@@ -32,8 +32,9 @@ void VolumeOutputPort::setIntermediateData(const PortData& incoming)
     // pointer and won't refresh on in-place mutation.
     vtkNew<vtkImageData> copy;
     copy->DeepCopy(fresh->imageData());
-    if (hasData() && isVolumeType(data().type())) {
-      auto existing = data().value<VolumeDataPtr>();
+    auto current = data();
+    if (current.isValid() && isVolumeType(current.type())) {
+      auto existing = current.value<VolumeDataPtr>();
       if (existing) {
         existing->setImageData(vtkSmartPointer<vtkImageData>(copy.Get()));
         emit dataChanged();

@@ -488,7 +488,11 @@ void LegacyStateLoader::applyDataSourceMetadata(Node* node,
   if (!outPort || !outPort->hasData()) {
     return;
   }
-  auto vol = outPort->data().value<VolumeDataPtr>();
+  auto portData = outPort->data();
+  if (!portData.isValid() || !isVolumeType(portData.type())) {
+    return;
+  }
+  auto vol = portData.value<VolumeDataPtr>();
   if (!vol) {
     return;
   }

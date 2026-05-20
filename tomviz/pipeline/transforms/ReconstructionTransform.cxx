@@ -44,7 +44,11 @@ QWidget* ReconstructionTransform::getCustomProgressWidget(
 
   auto* input = inputPort("tiltSeries");
   if (input && input->hasData()) {
-    auto vol = input->data().value<VolumeDataPtr>();
+    auto portData = input->data();
+    if (!portData.isValid() || !isVolumeType(portData.type())) {
+      return nullptr;
+    }
+    auto vol = portData.value<VolumeDataPtr>();
     if (vol && vol->isValid()) {
       inputImage = vol->imageData();
       vol->initColorMap();
