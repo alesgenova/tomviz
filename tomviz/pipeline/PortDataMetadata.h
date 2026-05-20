@@ -21,8 +21,7 @@ class VolumeData;
 /// label set can vary between executions and inheriting from upstream
 /// would yield wrong colors.
 ///
-/// Returns true if a segmentation preset was applied, false if the data
-/// had too many unique labels (>256) and a default colormap was used.
+/// Returns true if a segmentation preset was applied.
 bool applySegmentationColorMap(VolumeData& vol);
 
 /// Copy presentation metadata (e.g. colormap, gradient opacity) from

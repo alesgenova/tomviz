@@ -1665,7 +1665,6 @@ void MainWindow::initPipeline()
   // run of a freshly loaded pipeline. Topological order makes sure
   // upstream color maps exist before downstream's copyColorMapFrom.
   connect(p, &pipeline::Pipeline::executionFinished, this, [this, p]() {
-    m_labelMapPresetFailed = false;
     bool anyNewColorMaps = false;
     for (auto* node : p->topologicalSort()) {
       for (auto* port : node->outputPorts()) {
@@ -1673,14 +1672,6 @@ void MainWindow::initPipeline()
           anyNewColorMaps = true;
         }
       }
-    }
-
-    if (m_labelMapPresetFailed) {
-      QMessageBox::warning(
-        this, "Segmentation Color Map",
-        "A label map has too many unique values (>256) to generate a "
-        "segmentation color map. A default color map will be used "
-        "instead.");
     }
 
     // Refresh sinks that skipped updateColorMap during execution
@@ -1916,9 +1907,7 @@ bool MainWindow::ensureColorMapForPort(pipeline::Node* node,
   // in data-coordinate space and rescaling would shift them.
   if (port->type() == pipeline::PortType::LabelMap) {
     bool created = !vol->hasColorMap();
-    if (!pipeline::applySegmentationColorMap(*vol)) {
-      m_labelMapPresetFailed = true;
-    }
+    pipeline::applySegmentationColorMap(*vol);
     return created;
   }
 

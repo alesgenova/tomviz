@@ -870,16 +870,8 @@ void HistogramWidget::onCreateSegmentationColormapClicked()
     return;
   }
 
-  static const int maxSegments = 256;
-  auto preset = buildSegmentationPreset(scalars, maxSegments);
+  auto preset = buildSegmentationPreset(scalars);
   if (preset.isEmpty()) {
-    // Only remaining post-dtype failure mode is too many unique
-    // values; tell the user.
-    QMessageBox::warning(
-      this, "Too Many Unique Values",
-      QString("Segmentation colormaps work best with discrete labeled "
-              "data (max %1 segments).")
-        .arg(maxSegments));
     return;
   }
 

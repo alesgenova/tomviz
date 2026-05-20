@@ -134,7 +134,6 @@ private:
   QMetaObject::Connection m_tipDataChangedConn;
   QMetaObject::Connection m_tipMetadataChangedConn;
   bool m_colorMapUpdatePending = false;
-  bool m_labelMapPresetFailed = false;
   QMetaObject::Connection m_sinkColorMapChangedConn;
   QMetaObject::Connection m_editingChangedConn;
   QPointer<QWidget> m_dynamicPropertiesWidget;

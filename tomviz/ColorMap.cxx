@@ -23,7 +23,7 @@
 namespace tomviz
 {
 
-QJsonObject buildSegmentationPreset(vtkDataArray* scalars, int maxLabels)
+QJsonObject buildSegmentationPreset(vtkDataArray* scalars)
 {
   if (!scalars || scalars->GetNumberOfTuples() == 0) {
     return QJsonObject();
@@ -37,11 +37,6 @@ QJsonObject buildSegmentationPreset(vtkDataArray* scalars, int maxLabels)
   const vtkIdType numTuples = scalars->GetNumberOfTuples();
   for (vtkIdType i = 0; i < numTuples; ++i) {
     uniqueValues.insert(scalars->GetTuple1(i));
-    // Bail out early once we exceed the cap — no point finishing the
-    // scan only to throw the result away.
-    if (static_cast<int>(uniqueValues.size()) > maxLabels) {
-      return QJsonObject();
-    }
   }
   if (uniqueValues.empty()) {
     return QJsonObject();

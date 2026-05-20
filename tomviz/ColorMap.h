@@ -21,9 +21,9 @@ namespace tomviz {
 /// golden-angle hue spacing.
 ///
 /// Returns an empty QJsonObject if @a scalars is null, floating-point,
-/// empty, or has more than @a maxLabels unique values.
-QJsonObject buildSegmentationPreset(vtkDataArray* scalars,
-                                    int maxLabels = 256);
+/// or empty. Colors cycle via golden-angle hue spacing, so duplicate
+/// colors will appear for large label counts.
+QJsonObject buildSegmentationPreset(vtkDataArray* scalars);
 
 /// Apply a tomviz-format preset JSON object (fields "name",
 /// "colorSpace", "colors") to a transfer function proxy.
