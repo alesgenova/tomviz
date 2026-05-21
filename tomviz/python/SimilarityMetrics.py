@@ -1,18 +1,19 @@
-import tomviz.operators
+import tomviz.nodes
+import tomviz.utils
 
 
-class SimilarityMetrics(tomviz.operators.CancelableOperator):
+class SimilarityMetrics(tomviz.nodes.TransformNode):
 
-    def transform(self, dataset, reference_dataset=None, selected_scalars=None, axis=2):
+    def transform(self, inputs, selected_scalars=None, axis=2):
         """Compute similarity metrics between the current dataset and a
         reference dataset.
         """
-        import numpy as np  # noqa: F811
+        import numpy as np
         from skimage.transform import resize
         from skimage.metrics import structural_similarity, mean_squared_error
 
-        if reference_dataset is None:
-            raise Exception("A probe dataset is required.")
+        dataset = inputs["dataset"]
+        reference_dataset = inputs["reference_dataset"]
 
         if selected_scalars is None:
             selected_scalars = dataset.scalars_names
@@ -169,13 +170,10 @@ class SimilarityMetrics(tomviz.operators.CancelableOperator):
             table_data[:, 1 + 2 * i] = mse_col
             table_data[:, 2 + 2 * i] = ssim_col
 
-        # Return similarity table as operator result
-        return_values = {}
         axis_labels = ("Slice Index", "")
         log_flags = (False, False)
         table = tomviz.utils.make_spreadsheet(
             column_names, table_data, axis_labels, log_flags
         )
-        return_values["similarity"] = table
 
-        return return_values
+        return {"similarity": table}

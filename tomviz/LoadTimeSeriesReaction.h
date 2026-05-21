@@ -7,7 +7,9 @@
 #include <pqReaction.h>
 
 namespace tomviz {
-class DataSource;
+namespace pipeline {
+class SourceNode;
+}
 
 /// LoadTimeSeriesReaction handles the "Open Time Series" action in tomviz. On
 /// trigger, this will open the data files and perform the necessary subsequent
@@ -20,7 +22,7 @@ public:
   LoadTimeSeriesReaction(QAction* parentAction);
   ~LoadTimeSeriesReaction() override;
 
-  static QList<DataSource*> loadData();
+  static QList<pipeline::SourceNode*> loadData();
 
 protected:
   /// Called when the action is triggered.

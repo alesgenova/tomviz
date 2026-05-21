@@ -5,12 +5,12 @@
 #define tomvizModuleAnimation_h
 
 #include "ActiveObjects.h"
-#include "Module.h"
-#include "ModuleManager.h"
+#include "pipeline/Node.h"
 
 #include <pqTimeKeeper.h>
 
 #include <QObject>
+#include <QPointer>
 
 namespace tomviz {
 
@@ -19,9 +19,12 @@ class ModuleAnimation : public QObject
   Q_OBJECT
 
 public:
-  Module* baseModule = nullptr;
+  QPointer<pipeline::Node> baseNode;
 
-  ModuleAnimation(Module* module) : baseModule(module) { setupConnections(); }
+  ModuleAnimation(pipeline::Node* node) : baseNode(node)
+  {
+    setupConnections();
+  }
 
   virtual void setupConnections()
   {
@@ -30,17 +33,10 @@ public:
               &ModuleAnimation::onTimeChanged);
     }
 
-    connect(&moduleManager(), &ModuleManager::moduleRemoved, this,
-            &ModuleAnimation::onModuleRemoved);
-  }
-
-  virtual void onModuleRemoved(Module* module)
-  {
-    if (module != baseModule) {
-      return;
+    if (baseNode) {
+      connect(baseNode.data(), &QObject::destroyed, this,
+              &QObject::deleteLater);
     }
-
-    this->disconnect();
   }
 
   virtual ActiveObjects& activeObjects() { return ActiveObjects::instance(); }
@@ -66,7 +62,6 @@ public:
 
     auto timeSteps = timeKeeper()->getTimeSteps();
     if (timeSteps.empty()) {
-      // It's just a 0 to 1 default.
       timeSteps.append(0);
       timeSteps.append(1);
     }
@@ -77,8 +72,6 @@ public:
   virtual double timeStart() { return timeSteps().front(); }
   virtual double timeStop() { return timeSteps().back(); }
   virtual double progress() { return time() / (timeStop() - timeStart()); }
-
-  virtual ModuleManager& moduleManager() { return ModuleManager::instance(); }
 
   virtual void onTimeChanged() {}
 };

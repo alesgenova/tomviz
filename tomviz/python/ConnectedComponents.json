@@ -1,13 +1,15 @@
 {
-  "name" : "ConnectedComponents",
-  "label" : "Connected Components",
-  "description" : "Compute label map of connected components. The components are relabeled in order of increasing volume in the output.",
-  "parameters" : [
+  "name": "ConnectedComponents",
+  "label": "Connected Components",
+  "description": "Compute label map of connected components. The components are relabeled in order of increasing volume in the output.",
+  "parameters": [
     {
-      "name" : "background_value",
-      "label" : "Background Value",
-      "type" : "int",
-      "default" : 0
+      "name": "background_value",
+      "label": "Background Value",
+      "type": "int",
+      "default": 0
     }
-  ]
+  ],
+  "inputType": "LabelMap",
+  "outputType": "LabelMap"
 }

@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 2,
+  "name": "PyXRFSource",
+  "label": "PyXRF Source",
+  "widget": "PyXRFWidget",
+  "description": "Download XRF scan data, process projections via pyxrf-utils, and extract all fitted elements into a tilt series.",
+  "outputs": [
+    {"name": "elements", "type": "TiltSeries", "persistent": true}
+  ],
+  "parameters": [
+    {
+      "name": "pyxrf_utils_command",
+      "label": "PyXRF Utils Command",
+      "type": "string",
+      "default": "pyxrf-utils"
+    },
+    {
+      "name": "working_directory",
+      "label": "Data Directory",
+      "type": "directory",
+      "default": ""
+    },
+    {
+      "name": "scan_range",
+      "label": "Scan Range",
+      "type": "string",
+      "default": ""
+    },
+    {
+      "name": "skip_scan_ids",
+      "label": "Skip Scan IDs",
+      "type": "string",
+      "default": "[]"
+    },
+    {
+      "name": "skip_downloads",
+      "label": "Skip Downloads",
+      "type": "bool",
+      "default": false
+    },
+    {
+      "name": "redownload_successful",
+      "label": "Re-download Successful Scans",
+      "type": "bool",
+      "default": false,
+      "visible_if": "skip_downloads == false"
+    },
+    {
+      "name": "parameters_file",
+      "label": "Parameters File",
+      "type": "file",
+      "default": ""
+    },
+    {
+      "name": "ic_name",
+      "label": "Normalization Channel",
+      "type": "string",
+      "default": "sclr1_ch4"
+    },
+    {
+      "name": "skip_processed",
+      "label": "Skip Processed",
+      "type": "bool",
+      "default": true
+    },
+    {
+      "name": "rotate_datasets",
+      "label": "Rotate Datasets",
+      "type": "bool",
+      "default": true
+    },
+    {
+      "name": "csv_output",
+      "label": "Output CSV File",
+      "type": "string",
+      "default": ""
+    },
+    {
+      "name": "ui_state",
+      "label": "UI Settings",
+      "type": "string",
+      "default": "{}"
+    }
+  ]
+}

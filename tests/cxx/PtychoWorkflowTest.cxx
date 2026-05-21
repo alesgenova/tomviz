@@ -2,39 +2,27 @@
    It is released under the 3-Clause BSD License, see "LICENSE". */
 
 #include <QApplication>
-#include <QDebug>
 #include <QDir>
 #include <QFileInfo>
-#include <QLineEdit>
 #include <QProcess>
 #include <QProcessEnvironment>
 #include <QTest>
-#include <QThread>
 
 #include <pqPVApplicationCore.h>
 
 #include "PythonUtilities.h"
-#include "PtychoDialog.h"
-#include "PtychoRunner.h"
+#include "Utilities.h"
+
+#include "pipeline/OutputPort.h"
+#include "pipeline/sources/PythonSource.h"
 
 #include "TomvizTest.h"
 
 using namespace tomviz;
+using namespace tomviz::pipeline;
 
 const QDir ROOT_DATA_DIR = QString(SOURCE_DIR) + "/data";
 const QDir DATA_DIR = ROOT_DATA_DIR.absolutePath() + "/Pt_Zn_Phase";
-
-template <typename T>
-T* findWidget()
-{
-  for (auto* widget : QApplication::topLevelWidgets()) {
-    if (qobject_cast<T*>(widget)) {
-      return qobject_cast<T*>(widget);
-    }
-  }
-
-  return nullptr;
-}
 
 class PtychoWorkflowTest : public QObject
 {
@@ -44,23 +32,21 @@ private:
   void downloadDataIfMissing()
   {
     if (DATA_DIR.exists()) {
-      // Nothing to do
       return;
     }
-    // Download the data if it is not present
     QString python = "python";
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     if (env.contains("TOMVIZ_TEST_PYTHON_EXECUTABLE")) {
       python = env.value("TOMVIZ_TEST_PYTHON_EXECUTABLE");
     }
 
-    auto scriptFile = QFileInfo(QString(SOURCE_DIR) + "/fixtures/download_and_unzip.py");
+    auto scriptFile =
+      QFileInfo(QString(SOURCE_DIR) + "/fixtures/download_and_unzip.py");
     QString scriptPath = scriptFile.absoluteFilePath();
 
-    QString url = "https://data.kitware.com/api/v1/file/6914aad883abdcd84d150c91/download";
+    QString url =
+      "https://data.kitware.com/api/v1/file/6914aad883abdcd84d150c91/download";
 
-    // We unzip into the parent directory, which will then have `Pt_Zn_Phase`
-    // after unzipping.
     QStringList arguments;
     arguments << scriptPath << url << ROOT_DATA_DIR.absolutePath();
 
@@ -68,17 +54,13 @@ private:
     process.setProcessChannelMode(QProcess::ForwardedChannels);
     process.start(python, arguments);
 
-    // Timeout in seconds
     int timeout = 60 * 10;
     QVERIFY(process.waitForFinished(timeout * 1000));
     QVERIFY(process.exitCode() == 0);
   }
 
 private slots:
-  void initTestCase()
-  {
-    downloadDataIfMissing();
-  }
+  void initTestCase() { downloadDataIfMissing(); }
 
   void cleanupTestCase() {}
 
@@ -87,55 +69,45 @@ private slots:
     QString ptychoDir = DATA_DIR.absolutePath() + "/Ptycho/recon_result/";
     QString outputDir = DATA_DIR.absolutePath() + "/output/";
 
-    auto* runner = new PtychoRunner(this);
-    runner->setAutoLoadFinalData(false);
-    runner->start();
+    QString outputInfoFile = outputDir + "stacked_ptycho_info.txt";
 
-    auto* dialog = findWidget<PtychoDialog>();
-    QVERIFY(dialog);
+    QDir outDir(outputDir);
+    outDir.mkpath(".");
+    QFile::remove(outputInfoFile);
 
-    auto* ptychoDirEdit = dialog->findChild<QLineEdit*>("ptychoDirectory");
-    QVERIFY(ptychoDirEdit);
-    ptychoDirEdit->setText(ptychoDir);
+    auto jsonDesc = readInJSONDescription("PtychoSource");
+    QVERIFY2(!jsonDesc.contains("raise IOError"),
+             "Could not read PtychoSource.json");
 
-    // Trigger the necessary changes
-    emit ptychoDirEdit->editingFinished();
+    auto script = readInPythonScript("PtychoSource");
+    QVERIFY2(!script.contains("raise IOError"),
+             "Could not read PtychoSource.py");
 
-    auto* outputDirEdit = dialog->findChild<QLineEdit*>("outputDirectory");
-    QVERIFY(outputDirEdit);
-    outputDirEdit->setText(outputDir);
+    auto* source = new PythonSource(this);
+    source->setJSONDescription(jsonDesc);
+    source->setScript(script);
 
-    dialog->accept();
+    source->setParameter("ptycho_dir", ptychoDir);
+    source->setParameter("output_info_file", outputInfoFile);
+    source->setParameter("rotate_datasets", true);
+    source->setParameter("sid_list", "[157391,157394,157397]");
+    source->setParameter("version_list", R"(["t1","t1","t1"])");
+    source->setParameter("angle_list", "[-90.0,-89.0,-88.0]");
 
-    QStringList outputFileNames = {"ptycho_object.emd", "ptycho_probe.emd"};
+    bool ok = source->execute();
+    QVERIFY2(ok, "PtychoSource::execute() failed");
 
-    auto checkAllExist = [&outputDir, &outputFileNames]() {
-      for (const auto& filename : outputFileNames) {
-        if (!QFile::exists(outputDir + filename)) {
-          return false;
-        }
+    auto* objectPort = source->outputPort("object");
+    QVERIFY(objectPort);
+    QVERIFY2(objectPort->hasData(), "object output port has no data");
 
-      }
-      return true;
-    };
+    auto* probePort = source->outputPort("probe");
+    QVERIFY(probePort);
+    QVERIFY2(probePort->hasData(), "probe output port has no data");
 
-    // Wait for it to finish, and verify the output files were written
-    int timeout = 30;
-    int waitTime = 0;
-    bool found = false;
-
-    while (waitTime < timeout) {
-      if (checkAllExist()) {
-        found = true;
-        break;
-      }
-      QThread::sleep(1);
-      ++waitTime;
-    }
-    // Verify everything was found
-    QVERIFY(found);
+    QVERIFY2(QFile::exists(outputInfoFile),
+             "Info text file was not written");
   }
-
 };
 
 int main(int argc, char** argv)

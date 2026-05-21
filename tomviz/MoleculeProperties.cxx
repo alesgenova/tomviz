@@ -32,7 +32,7 @@ MoleculeProperties::MoleculeProperties(vtkMolecule* molecule, QWidget* parent)
     it.next();
     formula += QString("%1<sub>%2 </sub>").arg(it.key()).arg(it.value());
   }
-  auto formulaBox = new QGroupBox("Formula:");
+  auto formulaBox = new QGroupBox("Molecule Formula:");
   auto formulaLabel = new QLabel(formula);
   auto vbox = new QVBoxLayout;
   vbox->addWidget(formulaLabel);
@@ -58,12 +58,15 @@ MoleculeProperties::MoleculeProperties(vtkMolecule* molecule, QWidget* parent)
             table->setVisible(toggle);
           });
 
+  formulaBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+
   layout->addWidget(formulaBox);
   layout->addWidget(saveButton);
   layout->addWidget(showButton);
   layout->addWidget(table);
+  layout->addStretch();
 
-  layout->setContentsMargins(0, 0, 0, 0);
+  layout->setContentsMargins(4, 4, 4, 4);
   this->setLayout(layout);
 }
 

@@ -1,0 +1,33 @@
+<RCC>
+  <qresource prefix="/pipeline">
+    <file alias="check.png">../icons/check.png</file>
+    <file alias="check@2x.png">../icons/check@2x.png</file>
+    <file alias="edit.png">../icons/edit.png</file>
+    <file alias="edit@2x.png">../icons/edit@2x.png</file>
+    <file alias="question.png">../icons/question.png</file>
+    <file alias="question@2x.png">../icons/question@2x.png</file>
+    <file alias="spinner.png">../icons/spinner.png</file>
+    <file alias="spinner@2x.png">../icons/spinner@2x.png</file>
+    <file alias="breakpoint.svg">../icons/breakpoint.svg</file>
+    <file alias="error.png">../icons/error_notification.png</file>
+    <file alias="error@2x.png">../icons/error_notification@2x.png</file>
+    <file alias="canceled.png">../icons/red_cross.png</file>
+    <file alias="canceled@2x.png">../icons/red_cross@2x.png</file>
+    <file alias="port_tiltseries.svg">../icons/port_tiltseries.svg</file>
+    <file alias="port_imagedata.svg">../icons/port_imagedata.svg</file>
+    <file alias="port_labelmap.svg">../icons/port_labelmap.svg</file>
+    <file alias="port_table.svg">../icons/port_table.svg</file>
+    <file alias="port_molecule.svg">../icons/port_molecule.svg</file>
+    <file alias="port_persistent_pin.svg">../icons/port_persistent_pin.svg</file>
+    <file alias="port_persistent_ram.svg">../icons/port_persistent_ram.svg</file>
+    <file alias="port_persistent_disk.svg">../icons/port_persistent_disk.svg</file>
+    <file alias="port_data_disk.svg">../icons/port_data_disk.svg</file>
+    <file alias="port_transient.svg">../icons/port_transient.svg</file>
+    <file alias="port_data_ram.svg">../icons/port_data_ram.svg</file>
+    <file alias="pqInspect.png">../icons/pqInspect.png</file>
+    <file alias="pqVolumeData.png">../icons/pqVolumeData.png</file>
+    <file alias="orthoslice.svg">../icons/orthoslice.svg</file>
+    <file alias="pqMeasurementCube.png">../icons/pqMeasurementCube.png</file>
+    <file alias="icon_leave.svg">../icons/icon_leave.svg</file>
+  </qresource>
+</RCC>

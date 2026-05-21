@@ -47,6 +47,16 @@
     </widget>
    </item>
    <item>
+    <widget class="QPushButton" name="createSegmentationColormap">
+     <property name="text">
+      <string>Create Segmentation Colormap</string>
+     </property>
+     <property name="toolTip">
+      <string>Generate a colormap with distinct colors for each unique value in the data</string>
+     </property>
+    </widget>
+   </item>
+   <item>
     <widget class="QPushButton" name="resetToDefaultsButton">
      <property name="text">
       <string>Reset to Defaults</string>

@@ -8,11 +8,10 @@
 #include "vtkPython.h" // must be first
 #pragma pop_macro("slots")
 
-#include "core/DataSourceBase.h"
+#include "legacy/core/DataSourceBase.h"
 
-#include "DataSource.h"
+#include "legacy/DataSource.h"
 #include "Logger.h"
-#include "OperatorFactory.h"
 
 #include <vtkPythonInterpreter.h>
 #include <vtkPythonUtil.h>
@@ -610,6 +609,7 @@ Python::Object Python::createDataset(vtkObjectBase* data,
   auto createDatasetFunc = module.findFunction("create_dataset");
   if (!createDatasetFunc.isValid()) {
     Logger::critical("Unable to locate create_dataset.");
+    return Python::Object();
   }
 
   auto dataObj = Python::VTK::GetObjectFromPointer(data);
@@ -653,6 +653,15 @@ std::vector<OperatorDescription> findCustomOperators(const QString& path)
     op.label = opDict["label"].toString();
     op.pythonPath = opDict["pythonPath"].toString();
     op.valid = opDict["valid"].toBool();
+
+    QString type = opDict["type"].toString();
+    if (type == "source") {
+      op.type = OperatorDescription::Type::Source;
+    } else if (type == "transform") {
+      op.type = OperatorDescription::Type::Transform;
+    } else {
+      op.type = OperatorDescription::Type::LegacyTransform;
+    }
 
     // Do we have a JSON file?
     Python::Object jsonPath = opDict["jsonPath"];

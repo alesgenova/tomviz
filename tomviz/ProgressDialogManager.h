@@ -5,32 +5,43 @@
 #define tomvizProgressDialogManager_h
 
 #include <QObject>
+#include <QPointer>
 
+class QDialog;
 class QMainWindow;
 
 namespace tomviz {
-class Operator;
-class DataSource;
+namespace pipeline {
+class Node;
+class Pipeline;
+} // namespace pipeline
 
 class ProgressDialogManager : public QObject
 {
   Q_OBJECT
 
-  typedef QObject Superclass;
-
 public:
   ProgressDialogManager(QMainWindow* mw);
-  virtual ~ProgressDialogManager();
+  ~ProgressDialogManager() override;
+
+  /// Start tracking execution on @a pipeline.
+  void setPipeline(pipeline::Pipeline* pipeline);
+
+protected:
+  bool eventFilter(QObject* obj, QEvent* event) override;
 
 private slots:
-  void operationStarted();
-  void operationProgress(int progress);
-  void operatorAdded(Operator* op);
-  void dataSourceAdded(DataSource* ds);
+  void onNodeExecutionStarted(pipeline::Node* node);
+  void onNodeExecutionFinished(pipeline::Node* node, bool success);
   void showStatusBarMessage(const QString& message);
 
 private:
-  QMainWindow* mainWindow;
+  void connectExecutor();
+
+  QMainWindow* m_mainWindow = nullptr;
+  QPointer<pipeline::Pipeline> m_pipeline;
+  QPointer<QDialog> m_progressDialog;
+
   Q_DISABLE_COPY(ProgressDialogManager)
 };
 } // namespace tomviz

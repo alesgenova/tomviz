@@ -30,9 +30,8 @@ MoleculePropertiesPanel::MoleculePropertiesPanel(QWidget* parent)
   m_layout->addStretch();
   this->setLayout(m_layout);
 
-  connect(&ActiveObjects::instance(),
-          &ActiveObjects::moleculeSourceChanged, this,
-          &MoleculePropertiesPanel::setMoleculeSource);
+  // TODO: migrate to new pipeline
+  // Old code connected to ActiveObjects::moleculeSourceChanged
   update();
 }
 

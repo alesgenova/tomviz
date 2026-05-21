@@ -3,7 +3,7 @@
 
 #include "DataExchangeFormat.h"
 
-#include "DataSource.h"
+#include "legacy/DataSource.h"
 #include "GenericHDF5Format.h"
 #include "Utilities.h"
 
@@ -102,6 +102,58 @@ bool DataExchangeFormat::read(const std::string& fileName,
   dataSource->dataModified();
 
   return true;
+}
+
+HDF5ReadResult DataExchangeFormat::readAll(const std::string& fileName,
+                                            const QVariantMap& options)
+{
+  HDF5ReadResult result;
+
+  vtkNew<vtkImageData> image;
+  if (!read(fileName, image, options)) {
+    std::cerr << "Failed to read data in: " + fileName + "\n";
+    return result;
+  }
+
+  result.imageData = image;
+
+  // Read dark and white data
+  vtkNew<vtkImageData> darkImage, whiteImage;
+  readDark(fileName, darkImage, options);
+  if (darkImage->GetPointData()->GetNumberOfArrays() != 0) {
+    result.darkData = darkImage;
+  }
+
+  readWhite(fileName, whiteImage, options);
+  if (whiteImage->GetPointData()->GetNumberOfArrays() != 0) {
+    result.whiteData = whiteImage;
+  }
+
+  result.tiltAngles = readTheta(fileName, options);
+
+  if (result.tiltAngles.isEmpty()) {
+    // Re-order the data to Fortran ordering
+    GenericHDF5Format::reorderData(image, ReorderMode::CToFortran);
+    if (result.darkData) {
+      GenericHDF5Format::reorderData(result.darkData, ReorderMode::CToFortran);
+    }
+    if (result.whiteData) {
+      GenericHDF5Format::reorderData(result.whiteData,
+                                     ReorderMode::CToFortran);
+    }
+  } else {
+    // No re-order needed. Just re-label the axes.
+    relabelXAndZAxes(image);
+    if (result.darkData) {
+      relabelXAndZAxes(result.darkData);
+    }
+    if (result.whiteData) {
+      relabelXAndZAxes(result.whiteData);
+    }
+    result.isTiltSeries = true;
+  }
+
+  return result;
 }
 
 bool DataExchangeFormat::readDark(const std::string& fileName,

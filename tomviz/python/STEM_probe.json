@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 2,
+  "name": "STEM_probe",
+  "label": "Electron Beam Shape",
+  "description": "Generate a convergent electron beam in 3D. This represents the 3D probe used for atomic resolution imaging in a scanning transmission electron microscope.",
+  "outputs": [
+    {"name": "volume", "type": "ImageData", "persistent": true}
+  ],
+  "parameters": [
+    {
+      "name": "voltage",
+      "label": "Beam energy (keV)",
+      "type": "double",
+      "default": 300.0,
+      "minimum": 1.0,
+      "maximum": 1000000.0,
+      "step": 50.0
+    },
+    {
+      "name": "alpha_max",
+      "label": "Semi-convergence angle (mrad)",
+      "type": "double",
+      "default": 30.0,
+      "minimum": 0.0,
+      "maximum": 500.0,
+      "step": 0.5
+    },
+    {
+      "name": "Nxy",
+      "label": "Transverse plane: number of pixels (x-y)",
+      "type": "int",
+      "default": 256,
+      "minimum": 64,
+      "maximum": 2048
+    },
+    {
+      "name": "dxy",
+      "label": "x-y pixel size (angstrom)",
+      "type": "double",
+      "default": 0.1,
+      "minimum": 0.0001,
+      "precision": 4,
+      "step": 0.1
+    },
+    {
+      "name": "Nz",
+      "label": "Propagation direction: number of pixels (z)",
+      "type": "int",
+      "default": 512,
+      "minimum": 1,
+      "maximum": 2048
+    },
+    {
+      "name": "df_min",
+      "label": "Minimum defocus (nm)",
+      "type": "double",
+      "default": -50.0,
+      "minimum": -1000000.0,
+      "maximum": 1000000.0,
+      "step": 5.0
+    },
+    {
+      "name": "df_max",
+      "label": "Maximum defocus (nm)",
+      "type": "double",
+      "default": 100.0,
+      "minimum": -1000000.0,
+      "maximum": 1000000.0,
+      "step": 5.0
+    },
+    {
+      "name": "c3",
+      "label": "Third-order spherical aberration (mm)",
+      "type": "double",
+      "default": 0.2,
+      "minimum": -1000000.0,
+      "maximum": 1000000.0,
+      "step": 0.1
+    },
+    {
+      "name": "f_a2",
+      "label": "Twofold astigmatism: value (nm)",
+      "type": "double",
+      "default": 0.0,
+      "minimum": -1000000.0,
+      "maximum": 1000000.0,
+      "step": 1000.0
+    },
+    {
+      "name": "phi_a2",
+      "label": "Twofold astigmatism: orientation (rad)",
+      "type": "double",
+      "default": 0.0,
+      "step": 0.1
+    },
+    {
+      "name": "f_a3",
+      "label": "Threefold astigmatism: value (nm)",
+      "type": "double",
+      "default": 0.0,
+      "minimum": -1000000.0,
+      "maximum": 1000000.0,
+      "step": 1000.0
+    },
+    {
+      "name": "phi_a3",
+      "label": "Threefold astigmatism: orientation (rad)",
+      "type": "double",
+      "default": 0.0,
+      "step": 0.1
+    },
+    {
+      "name": "f_c3",
+      "label": "Coma: value (nm)",
+      "type": "double",
+      "default": 1500.0,
+      "minimum": -1000000.0,
+      "maximum": 1000000.0,
+      "step": 1000.0
+    },
+    {
+      "name": "phi_c3",
+      "label": "Coma: orientation (rad)",
+      "type": "double",
+      "default": 0.0,
+      "step": 0.1
+    }
+  ]
+}

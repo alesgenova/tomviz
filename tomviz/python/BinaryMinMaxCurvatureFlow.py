@@ -21,7 +21,6 @@ class BinaryMinMaxCurvatureFlow(tomviz.operators.CancelableOperator):
 
         try:
             import itk
-            import itkTypes
             from tomviz import itkutils
         except Exception as exc:
             print("Could not import necessary module(s)")
@@ -40,7 +39,7 @@ class BinaryMinMaxCurvatureFlow(tomviz.operators.CancelableOperator):
             itk_image = itkutils.dataset_to_itk_image(dataset)
             itk_input_image_type = type(itk_image)
             self.progress.message = "Casting input to float type"
-            itk_filter_image_type = itk.Image[itkTypes.F,
+            itk_filter_image_type = itk.Image[itk.F,
                                               itk_image.GetImageDimension()]
             caster = itk.CastImageFilter[itk_input_image_type,
                                          itk_filter_image_type].New()

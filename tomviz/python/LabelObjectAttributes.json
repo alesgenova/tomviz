@@ -1,13 +1,15 @@
 {
-  "name" : "LabelObjectAttributes",
-  "label" : "Label Object Attributes",
-  "description" : "Creates a child dataset containing attributes of labeled objects in a labeled dataset. The input dataset is unmodified.",
+  "name": "LabelObjectAttributes",
+  "label": "Label Object Attributes",
+  "description": "Creates a child dataset containing attributes of labeled objects in a labeled dataset. The input dataset is unmodified.",
   "externalCompatible": false,
-  "results" : [
+  "results": [
     {
-      "name" : "component_statistics",
-      "label" : "Component Statistics",
-      "type" : "table"
+      "name": "component_statistics",
+      "label": "Component Statistics",
+      "type": "table"
     }
-  ]
+  ],
+  "inputType": "LabelMap",
+  "outputType": "LabelMap"
 }

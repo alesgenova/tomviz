@@ -15,13 +15,13 @@
 #include <vtkImageData.h>
 #include <vtkSmartPointer.h>
 
-#include "DataSource.h"
-#include "Pipeline.h"
-#include "PipelineProxy.h"
+#include "legacy/DataSource.h"
+#include "legacy/Pipeline.h"
+#include "legacy/PipelineProxy.h"
 #include "PythonUtilities.h"
 #include "TomvizTest.h"
-#include "operators/OperatorProxy.h"
-#include "operators/OperatorPython.h"
+#include "legacy/operators/OperatorProxy.h"
+#include "legacy/operators/OperatorPython.h"
 
 using namespace tomviz;
 

@@ -4,7 +4,7 @@
 #ifndef tomvizAlignWidget_h
 #define tomvizAlignWidget_h
 
-#include "EditOperatorWidget.h"
+#include "pipeline/EditNodeWidget.h"
 
 #include <vtkNew.h>
 #include <vtkSmartPointer.h>
@@ -33,18 +33,22 @@ class vtkRenderer;
 
 namespace tomviz {
 
+namespace pipeline {
+class TranslateAlignTransform;
+}
+
 class DataSource;
 class SpinBox;
-class TranslateAlignOperator;
 class ViewMode;
 class QVTKGLWidget;
 
-class AlignWidget : public EditOperatorWidget
+class AlignWidget : public pipeline::EditNodeWidget
 {
   Q_OBJECT
 
 public:
-  AlignWidget(TranslateAlignOperator* op, vtkSmartPointer<vtkImageData> data,
+  AlignWidget(pipeline::TranslateAlignTransform* op,
+              vtkSmartPointer<vtkImageData> data,
               QWidget* parent = nullptr);
   ~AlignWidget() override;
 
@@ -115,7 +119,7 @@ protected:
   int m_currentMode = 0;
 
   QVector<vtkVector2i> m_offsets;
-  QPointer<TranslateAlignOperator> m_operator;
+  QPointer<pipeline::TranslateAlignTransform> m_operator;
 
 private:
   int restoreDraftDialog() const;

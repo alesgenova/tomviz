@@ -4,14 +4,13 @@
 #include "RotateAlignWidget.h"
 
 #include "ActiveObjects.h"
-#include "AddPythonTransformReaction.h"
 #include "ColorMap.h"
-#include "DataSource.h"
-#include "LoadDataReaction.h"
 #include "PresetDialog.h"
 #include "TomographyReconstruction.h"
 #include "TomographyTiltSeries.h"
 #include "Utilities.h"
+#include "pipeline/PortType.h"
+#include "pipeline/data/VolumeData.h"
 
 #include <cmath>
 
@@ -122,6 +121,9 @@ public:
   void setupColorMaps()
   {
     vtkSMSessionProxyManager* pxm = ActiveObjects::instance().proxyManager();
+    if (!pxm) {
+      return;
+    }
 
     vtkNew<vtkSMTransferFunctionManager> tfmgr;
     for (int i = 0; i < 3; ++i) {
@@ -241,6 +243,9 @@ public:
 
       vtkDataArray* tiltAnglesArray =
         imageData->GetFieldData()->GetArray("tilt_angles");
+      if (!tiltAnglesArray) {
+        return;
+      }
       double* tiltAngles =
         static_cast<double*>(tiltAnglesArray->GetVoidPointer(0));
 
@@ -279,11 +284,13 @@ public:
         }
       }
 
-      vtkSMTransferFunctionProxy::RescaleTransferFunction(
-        this->ReconColorMap[i], range);
-      this->reconSlice[i]->GetProperty()->SetLookupTable(
-        vtkScalarsToColors::SafeDownCast(
-          this->ReconColorMap[i]->GetClientSideObject()));
+      if (this->ReconColorMap[i]) {
+        vtkSMTransferFunctionProxy::RescaleTransferFunction(
+          this->ReconColorMap[i], range);
+        this->reconSlice[i]->GetProperty()->SetLookupTable(
+          vtkScalarsToColors::SafeDownCast(
+            this->ReconColorMap[i]->GetClientSideObject()));
+      }
 
       tomviz::QVTKGLWidget* sliceView[] = { this->Ui.sliceView_1,
                                             this->Ui.sliceView_2,
@@ -411,51 +418,59 @@ public:
   }
 };
 
-RotateAlignWidget::RotateAlignWidget(Operator* op,
-                                     vtkSmartPointer<vtkImageData> image,
-                                     QWidget* p)
-  : CustomPythonOperatorWidget(p), Internals(new RAWInternal)
+RotateAlignWidget::RotateAlignWidget(
+  const QMap<QString, pipeline::PortData>& inputs, QWidget* p)
+  : pipeline::CustomPythonNodeWidget(p), Internals(new RAWInternal)
 {
+  vtkSmartPointer<vtkImageData> image;
+  vtkSMProxy* sourceColorMap = nullptr;
+  if (auto it = inputs.constFind(QStringLiteral("volume"));
+      it != inputs.constEnd()) {
+    const auto& portData = it.value();
+    if (portData.isValid() && pipeline::isVolumeType(portData.type())) {
+      if (auto vol = portData.value<pipeline::VolumeDataPtr>();
+          vol && vol->isValid()) {
+        image = vol->imageData();
+        vol->initColorMap();
+        sourceColorMap = vol->colorMap();
+      }
+    }
+  }
   this->Internals->m_image = image;
-  this->Internals->Ui.setupUi(this);
+  initUI(sourceColorMap);
+}
 
-  this->Internals->readSettings();
+void RotateAlignWidget::initUI(vtkSMProxy* sourceColorMap)
+{
+  auto* d = this->Internals.data();
+  d->Ui.setupUi(this);
+  d->readSettings();
+  d->setupColorMaps();
 
-  this->Internals->setupColorMaps();
   QIcon setColorMapIcon(":/pqWidgets/Icons/pqFavorites.svg");
-  this->Internals->Ui.colorMapButton_1->setIcon(setColorMapIcon);
-  this->Internals->Ui.colorMapButton_2->setIcon(setColorMapIcon);
-  this->Internals->Ui.colorMapButton_3->setIcon(setColorMapIcon);
-  this->connect(this->Internals->Ui.colorMapButton_1, &QToolButton::clicked, this,
-                &RotateAlignWidget::showChangeColorMapDialog0);
-  this->connect(this->Internals->Ui.colorMapButton_2, &QToolButton::clicked, this,
-                &RotateAlignWidget::showChangeColorMapDialog1);
-  this->connect(this->Internals->Ui.colorMapButton_3, &QToolButton::clicked, this,
-                &RotateAlignWidget::showChangeColorMapDialog2);
+  d->Ui.colorMapButton_1->setIcon(setColorMapIcon);
+  d->Ui.colorMapButton_2->setIcon(setColorMapIcon);
+  d->Ui.colorMapButton_3->setIcon(setColorMapIcon);
+  connect(d->Ui.colorMapButton_1, &QToolButton::clicked, this,
+          &RotateAlignWidget::showChangeColorMapDialog0);
+  connect(d->Ui.colorMapButton_2, &QToolButton::clicked, this,
+          &RotateAlignWidget::showChangeColorMapDialog1);
+  connect(d->Ui.colorMapButton_3, &QToolButton::clicked, this,
+          &RotateAlignWidget::showChangeColorMapDialog2);
 
-  this->Internals->mainSlice->SetMapper(this->Internals->mainSliceMapper);
-  this->Internals->reconSlice[0]->SetMapper(
-    this->Internals->reconSliceMapper[0]);
-  this->Internals->reconSlice[1]->SetMapper(
-    this->Internals->reconSliceMapper[1]);
-  this->Internals->reconSlice[2]->SetMapper(
-    this->Internals->reconSliceMapper[2]);
-  this->Internals->mainRenderer->AddViewProp(this->Internals->mainSlice);
-  this->Internals->reconRenderer[0]->AddViewProp(
-    this->Internals->reconSlice[0]);
-  this->Internals->reconRenderer[1]->AddViewProp(
-    this->Internals->reconSlice[1]);
-  this->Internals->reconRenderer[2]->AddViewProp(
-    this->Internals->reconSlice[2]);
+  d->mainSlice->SetMapper(d->mainSliceMapper);
+  d->reconSlice[0]->SetMapper(d->reconSliceMapper[0]);
+  d->reconSlice[1]->SetMapper(d->reconSliceMapper[1]);
+  d->reconSlice[2]->SetMapper(d->reconSliceMapper[2]);
+  d->mainRenderer->AddViewProp(d->mainSlice);
+  d->reconRenderer[0]->AddViewProp(d->reconSlice[0]);
+  d->reconRenderer[1]->AddViewProp(d->reconSlice[1]);
+  d->reconRenderer[2]->AddViewProp(d->reconSlice[2]);
 
-  this->Internals->Ui.sliceView->renderWindow()->AddRenderer(
-    this->Internals->mainRenderer);
-  this->Internals->Ui.sliceView_1->renderWindow()->AddRenderer(
-    this->Internals->reconRenderer[0]);
-  this->Internals->Ui.sliceView_2->renderWindow()->AddRenderer(
-    this->Internals->reconRenderer[1]);
-  this->Internals->Ui.sliceView_3->renderWindow()->AddRenderer(
-    this->Internals->reconRenderer[2]);
+  d->Ui.sliceView->renderWindow()->AddRenderer(d->mainRenderer);
+  d->Ui.sliceView_1->renderWindow()->AddRenderer(d->reconRenderer[0]);
+  d->Ui.sliceView_2->renderWindow()->AddRenderer(d->reconRenderer[1]);
+  d->Ui.sliceView_3->renderWindow()->AddRenderer(d->reconRenderer[2]);
 
   vtkNew<vtkInteractorStyleRubberBand2D> interatorStyleMain;
   vtkNew<vtkInteractorStyleRubberBand2D> interatorStyle1;
@@ -466,141 +481,120 @@ RotateAlignWidget::RotateAlignWidget(Operator* op,
   interatorStyle2->SetRenderOnMouseMove(true);
   interatorStyle3->SetRenderOnMouseMove(true);
 
-  this->Internals->Ui.sliceView->interactor()->SetInteractorStyle(
-    interatorStyleMain);
-  this->Internals->Ui.sliceView_1->interactor()->SetInteractorStyle(
-    interatorStyle1);
-  this->Internals->Ui.sliceView_2->interactor()->SetInteractorStyle(
-    interatorStyle2);
-  this->Internals->Ui.sliceView_3->interactor()->SetInteractorStyle(
-    interatorStyle3);
+  d->Ui.sliceView->interactor()->SetInteractorStyle(interatorStyleMain);
+  d->Ui.sliceView_1->interactor()->SetInteractorStyle(interatorStyle1);
+  d->Ui.sliceView_2->interactor()->SetInteractorStyle(interatorStyle2);
+  d->Ui.sliceView_3->interactor()->SetInteractorStyle(interatorStyle3);
 
-  this->Internals->rotationAxis->SetPoint1(0, 0, 0);
-  this->Internals->rotationAxis->SetPoint1(1, 1, 1);
-  this->Internals->rotationAxis->Update();
+  d->rotationAxis->SetPoint1(0, 0, 0);
+  d->rotationAxis->SetPoint1(1, 1, 1);
+  d->rotationAxis->Update();
 
   vtkNew<vtkPolyDataMapper> mapper;
-  mapper->SetInputConnection(this->Internals->rotationAxis->GetOutputPort());
-
-  this->Internals->axisActor->SetMapper(mapper);
-  this->Internals->axisActor->GetProperty()->SetColor(1, 1, 0); // yellow
-  this->Internals->axisActor->GetProperty()->SetLineWidth(2.5);
-  this->Internals->mainRenderer->AddActor(this->Internals->axisActor);
+  mapper->SetInputConnection(d->rotationAxis->GetOutputPort());
+  d->axisActor->SetMapper(mapper);
+  d->axisActor->GetProperty()->SetColor(1, 1, 0); // yellow
+  d->axisActor->GetProperty()->SetLineWidth(2.5);
+  d->mainRenderer->AddActor(d->axisActor);
 
   for (int i = 0; i < 3; ++i) {
-    this->Internals->reconSliceLine[i]->Update();
+    d->reconSliceLine[i]->Update();
     vtkNew<vtkPolyDataMapper> sMapper;
-    sMapper->SetInputConnection(
-      this->Internals->reconSliceLine[i]->GetOutputPort());
-    this->Internals->reconSliceLineActor[i]->SetMapper(sMapper);
-    this->Internals->reconSliceLineActor[i]->GetProperty()->SetColor(1, 0, 0);
-    this->Internals->reconSliceLineActor[i]->GetProperty()->SetLineWidth(2.0);
-    this->Internals->reconSliceLineActor[i]
-      ->GetProperty()
-      ->SetLineStipplePattern(0xFF00);
-    this->Internals->mainRenderer->AddActor(
-      this->Internals->reconSliceLineActor[i]);
+    sMapper->SetInputConnection(d->reconSliceLine[i]->GetOutputPort());
+    d->reconSliceLineActor[i]->SetMapper(sMapper);
+    d->reconSliceLineActor[i]->GetProperty()->SetColor(1, 0, 0);
+    d->reconSliceLineActor[i]->GetProperty()->SetLineWidth(2.0);
+    d->reconSliceLineActor[i]->GetProperty()->SetLineStipplePattern(0xFF00);
+    d->mainRenderer->AddActor(d->reconSliceLineActor[i]);
   }
 
-  QObject::connect(this->Internals->Ui.sumProjections, &QCheckBox::toggled,
-                   this, &RotateAlignWidget::onSumProjectionsToggled);
-  QObject::connect(this->Internals->Ui.projection,
-                   QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
-                   &RotateAlignWidget::onProjectionNumberChanged);
-  this->Internals->Ui.projection->installEventFilter(this);
+  connect(d->Ui.sumProjections, &QCheckBox::toggled, this,
+          &RotateAlignWidget::onSumProjectionsToggled);
+  connect(d->Ui.projection,
+          QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+          &RotateAlignWidget::onProjectionNumberChanged);
+  d->Ui.projection->installEventFilter(this);
 
-  QObject::connect(this->Internals->Ui.spinBox_1,
-                   QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
-                   [this](int val) { this->onReconSliceChanged(0, val); });
-  this->Internals->Ui.spinBox_1->installEventFilter(this);
+  connect(d->Ui.spinBox_1,
+          QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+          [this](int val) { this->onReconSliceChanged(0, val); });
+  d->Ui.spinBox_1->installEventFilter(this);
 
-  QObject::connect(this->Internals->Ui.spinBox_2,
-                   QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
-                   [this](int val) { this->onReconSliceChanged(1, val); });
-  this->Internals->Ui.spinBox_2->installEventFilter(this);
+  connect(d->Ui.spinBox_2,
+          QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+          [this](int val) { this->onReconSliceChanged(1, val); });
+  d->Ui.spinBox_2->installEventFilter(this);
 
-  QObject::connect(this->Internals->Ui.spinBox_3,
-                   QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
-                   [this](int val) { this->onReconSliceChanged(2, val); });
-  this->Internals->Ui.spinBox_3->installEventFilter(this);
+  connect(d->Ui.spinBox_3,
+          QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+          [this](int val) { this->onReconSliceChanged(2, val); });
+  d->Ui.spinBox_3->installEventFilter(this);
 
-  QObject::connect(this->Internals->Ui.rotationAxis,
-                   QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
-                   &RotateAlignWidget::onRotationShiftChanged);
-  this->Internals->Ui.rotationAxis->installEventFilter(this);
+  connect(d->Ui.rotationAxis,
+          QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+          &RotateAlignWidget::onRotationShiftChanged);
+  d->Ui.rotationAxis->installEventFilter(this);
 
-  QObject::connect(this->Internals->Ui.rotationAngle,
-                   QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
-                   &RotateAlignWidget::onRotationAngleChanged);
-  this->Internals->Ui.rotationAngle->installEventFilter(this);
+  connect(d->Ui.rotationAngle,
+          QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+          &RotateAlignWidget::onRotationAngleChanged);
+  d->Ui.rotationAngle->installEventFilter(this);
 
-  QObject::connect(this->Internals->Ui.orientation,
-                   QOverload<int>::of(&QComboBox::currentIndexChanged), this,
-                   [this](int val) { this->onOrientationChanged(val); });
-  this->Internals->Ui.orientation->installEventFilter(this);
+  connect(d->Ui.orientation,
+          QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+          [this](int val) { this->onOrientationChanged(val); });
+  d->Ui.orientation->installEventFilter(this);
 
-  //  this->connect(this->Internals->Ui.pushButton, SIGNAL(pressed()),
-  //                SLOT(onFinalReconButtonPressed()));
+  if (!d->m_image) {
+    return;
+  }
 
-  this->Internals->mainSliceMapper->SetInputData(this->Internals->m_image);
-  this->Internals->mainSliceMapper->Update();
+  d->mainSliceMapper->SetInputData(d->m_image);
+  d->mainSliceMapper->Update();
 
-  // Use a child data source if one is available so the color map will match
-  DataSource* ds;
-  if (op->childDataSource())
-    ds = op->childDataSource();
-  else if (op->dataSource())
-    ds = op->dataSource();
-  else
-    ds = ActiveObjects::instance().activeDataSource();
-
-  vtkScalarsToColors* lut =
-    vtkScalarsToColors::SafeDownCast(ds->colorMap()->GetClientSideObject());
-  if (lut) {
-    this->Internals->mainSlice->GetProperty()->SetLookupTable(lut);
-    for (int i = 0; i < 3; ++i) {
-      this->Internals->ReconColorMap[i]->Copy(ds->colorMap());
-      this->Internals->ReconColorMap[i]->UpdateVTKObjects();
+  // Apply source color map if provided
+  if (sourceColorMap) {
+    vtkScalarsToColors* lut = vtkScalarsToColors::SafeDownCast(
+      sourceColorMap->GetClientSideObject());
+    if (lut) {
+      d->mainSlice->GetProperty()->SetLookupTable(lut);
+      for (int i = 0; i < 3; ++i) {
+        d->ReconColorMap[i]->Copy(sourceColorMap);
+        d->ReconColorMap[i]->UpdateVTKObjects();
+      }
     }
   }
-  vtkImageData* imageData = this->Internals->m_image;
+
+  vtkImageData* imageData = d->m_image;
   int dims[3];
   imageData->GetDimensions(dims);
 
-  this->Internals->m_slice0 = vtkMath::Round(0.25 * dims[0]);
-  this->Internals->m_slice1 = vtkMath::Round(0.50 * dims[0]);
-  this->Internals->m_slice2 = vtkMath::Round(0.75 * dims[0]);
+  d->m_slice0 = vtkMath::Round(0.25 * dims[0]);
+  d->m_slice1 = vtkMath::Round(0.50 * dims[0]);
+  d->m_slice2 = vtkMath::Round(0.75 * dims[0]);
 
   int projectionNum = dims[2] / 2;
-  this->Internals->m_projectionNum = projectionNum;
-  this->Internals->mainSliceMapper->SetSliceNumber(projectionNum);
-  this->Internals->mainSliceMapper->Update();
+  d->m_projectionNum = projectionNum;
+  d->mainSliceMapper->SetSliceNumber(projectionNum);
+  d->mainSliceMapper->Update();
 
-  this->Internals->m_shiftRotation = 0;
-  this->Internals->m_tiltRotation = 0;
+  d->m_shiftRotation = 0;
+  d->m_tiltRotation = 0;
 
-  // Make sure the line matches the orientation
-  this->Internals->moveRotationAxisLine();
+  d->moveRotationAxisLine();
 
   updateControls();
 
-  // We have to do this here since we need the output to exist so the camera
-  // can be initialized below
-  this->Internals->updateReconSlice(0);
-  this->Internals->updateReconSlice(1);
-  this->Internals->updateReconSlice(2);
+  d->updateReconSlice(0);
+  d->updateReconSlice(1);
+  d->updateReconSlice(2);
 
-  this->Internals->setupCameras();
-  this->Internals->setupRotationAxisLine();
+  d->setupCameras();
+  d->setupRotationAxisLine();
 
   updateWidgets();
 }
 
-CustomPythonOperatorWidget* RotateAlignWidget::New(
-  QWidget* p, Operator* op, vtkSmartPointer<vtkImageData> data)
-{
-  return new RotateAlignWidget(op, data, p);
-}
 
 RotateAlignWidget::~RotateAlignWidget() {}
 

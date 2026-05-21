@@ -4,9 +4,10 @@
 #include "SetTiltAnglesReaction.h"
 
 #include "ActiveObjects.h"
-#include "DataSource.h"
-#include "EditOperatorDialog.h"
-#include "SetTiltAnglesOperator.h"
+#include "TransformUtils.h"
+
+#include "pipeline/OutputPort.h"
+#include "pipeline/transforms/SetTiltAnglesTransform.h"
 
 #include <QMainWindow>
 
@@ -16,44 +17,24 @@ SetTiltAnglesReaction::SetTiltAnglesReaction(QAction* p, QMainWindow* mw)
   : pqReaction(p), m_mainWindow(mw)
 {
   connect(&ActiveObjects::instance(),
-          static_cast<void (ActiveObjects::*)(DataSource*)>(
-            &ActiveObjects::dataSourceChanged),
-          this, &SetTiltAnglesReaction::updateEnableState);
+          &ActiveObjects::activePipelineChanged,
+          this, [this]() { updateEnableState(); });
+  connect(&ActiveObjects::instance(),
+          &ActiveObjects::activeTipOutputPortChanged,
+          this, [this]() { updateEnableState(); });
   updateEnableState();
 }
 
 void SetTiltAnglesReaction::updateEnableState()
 {
-  bool enable = ActiveObjects::instance().activeDataSource() != nullptr;
-  if (enable) {
-    enable = ActiveObjects::instance().activeDataSource()->type() ==
-             DataSource::TiltSeries;
-  }
-  parentAction()->setEnabled(enable);
+  auto& ao = ActiveObjects::instance();
+  auto* tipPort = ao.activeTipOutputPort();
+  parentAction()->setEnabled(tipPort != nullptr);
 }
 
-void SetTiltAnglesReaction::showSetTiltAnglesUI(QMainWindow* window,
-                                                DataSource* source)
+void SetTiltAnglesReaction::showSetTiltAnglesUI(QMainWindow*, DataSource*)
 {
-  source = source ? source : ActiveObjects::instance().activeParentDataSource();
-  if (!source) {
-    return;
-  }
-  auto operators = source->operators();
-  SetTiltAnglesOperator* op = nullptr;
-  bool needToAddOp = false;
-  if (operators.size() > 0) {
-    op = qobject_cast<SetTiltAnglesOperator*>(operators[operators.size() - 1]);
-  }
-  if (!op) {
-    op = new SetTiltAnglesOperator;
-    needToAddOp = true;
-  }
-  EditOperatorDialog* dialog =
-    new EditOperatorDialog(op, source, needToAddOp, window);
-  dialog->setAttribute(Qt::WA_DeleteOnClose);
-  dialog->setWindowTitle("Set Tilt Angles");
-  dialog->show();
-  connect(op, &QObject::destroyed, dialog, &QDialog::reject);
+  auto* transform = new pipeline::SetTiltAnglesTransform();
+  insertTransformIntoPipeline(transform);
 }
 } // namespace tomviz

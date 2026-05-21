@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from utils import load_operator_class, load_operator_module
+from utils import load_operator_class, load_operator_module, load_node_class
 
 from tomviz.external_dataset import Dataset
 
@@ -91,12 +91,10 @@ def test_deconvolution_denoise(chipset_xrf_dataset, chipset_probe_dataset):
         deconv_metrics['data'] = table_data.copy()
         return deconv_metrics
 
-    sim_operator = load_operator_class(sim_module)
+    sim_operator = load_node_class(sim_module)
+    sim_inputs = {"dataset": xrf_dataset, "reference_dataset": original_xrf}
     with patch('tomviz.utils.make_spreadsheet', capture_deconv_spreadsheet):
-        sim_operator.transform(
-            xrf_dataset,
-            reference_dataset=original_xrf,
-        )
+        sim_operator.transform(sim_inputs)
 
     # Gaussian blur on a copy of the original
     gaussian_xrf = deep_copy_dataset(original_xrf)
@@ -111,12 +109,10 @@ def test_deconvolution_denoise(chipset_xrf_dataset, chipset_probe_dataset):
         gaussian_metrics['data'] = table_data.copy()
         return gaussian_metrics
 
-    sim_operator2 = load_operator_class(sim_module)
+    sim_operator2 = load_node_class(sim_module)
+    sim_inputs2 = {"dataset": gaussian_xrf, "reference_dataset": original_xrf}
     with patch('tomviz.utils.make_spreadsheet', capture_gaussian_spreadsheet):
-        sim_operator2.transform(
-            gaussian_xrf,
-            reference_dataset=original_xrf,
-        )
+        sim_operator2.transform(sim_inputs2)
 
     # Compare metrics - deconvolution should be clearly better on average
     # (lower MSE and higher SSIM)

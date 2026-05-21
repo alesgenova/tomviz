@@ -36,8 +36,8 @@ private:
   static bool saveTvsm(const QString& filename, bool interactive = true);
   static bool saveTvh5(const QString& filename);
 
-  static bool loadTvsm(const QString& filename);
-  static bool loadTvh5(const QString& filename);
+  static bool loadTvsm(const QString& filename, bool executePipelines);
+  static bool loadTvh5(const QString& filename, bool executePipelines);
 };
 } // namespace tomviz
 

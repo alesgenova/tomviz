@@ -4,9 +4,17 @@
 #include "MergeImagesReaction.h"
 
 #include "ActiveObjects.h"
-#include "DataSource.h"
+#include "legacy/DataSource.h"
 #include "LoadDataReaction.h"
 #include "MergeImagesDialog.h"
+
+#include "pipeline/PortData.h"
+#include "pipeline/PortType.h"
+#include "pipeline/SourceNode.h"
+#include "pipeline/data/VolumeData.h"
+
+#include <vtkImageData.h>
+#include <vtkSmartPointer.h>
 
 #include <QFileInfo>
 #include <QSet>
@@ -51,7 +59,18 @@ void MergeImagesReaction::onTriggered()
   }
 
   if (newSource) {
-    LoadDataReaction::dataSourceAdded(newSource);
+    // Create a SourceNode from the merged DataSource
+    auto* source = new pipeline::SourceNode();
+    source->setLabel(newSource->label());
+    source->addOutput("volume", pipeline::PortType::ImageData);
+    vtkSmartPointer<vtkImageData> img = newSource->imageData();
+    auto vol = std::make_shared<pipeline::VolumeData>(img);
+    vol->setLabel(newSource->label());
+    source->setOutputData(
+      "volume",
+      pipeline::PortData(vol, pipeline::PortType::ImageData));
+    LoadDataReaction::sourceNodeAdded(source);
+    delete newSource; // Clean up the temporary DataSource
   }
 }
 

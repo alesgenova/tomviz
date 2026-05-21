@@ -7,8 +7,6 @@
 #include <pqReaction.h>
 
 namespace tomviz {
-class DataSource;
-class PythonWriterFactory;
 
 /// SaveDataReaction handles the "Save Data" action in tomviz. On trigger,
 /// this will save the data file.

@@ -17,5 +17,7 @@
       "label": "PSD",
       "type": "table"
     }
-  ]
+  ],
+  "inputType": "ImageData",
+  "outputType": "ImageData"
 }

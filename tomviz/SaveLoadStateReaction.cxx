@@ -3,10 +3,19 @@
 
 #include "SaveLoadStateReaction.h"
 
-#include "ModuleManager.h"
+#include "ActiveObjects.h"
+#include "legacy/modules/ModuleManager.h"
+#include "pipeline/LegacyStateLoader.h"
+#include "pipeline/Pipeline.h"
+#include "pipeline/PipelineStateIO.h"
+#include "pipeline/InputPort.h"
+#include "pipeline/sinks/LegacyModuleSink.h"
 #include "RecentFilesMenu.h"
 #include "Tvh5Format.h"
 #include "Utilities.h"
+#include "ViewsLayoutsSerializer.h"
+
+#include <vtkSMViewProxy.h>
 
 #include <pqSettings.h>
 #include <vtkSMProxyManager.h>
@@ -45,11 +54,9 @@ void SaveLoadStateReaction::onTriggered()
 bool SaveLoadStateReaction::saveState()
 {
   QString tvh5Filter = "Tomviz full state files (*.tvh5)";
-  QString tvsmFilter = "Tomvis state files (*.tvsm)";
+  QString tvsmFilter = "Tomviz state files (*.tvsm)";
   QStringList filters;
-  filters << tvh5Filter
-          << tvsmFilter
-          << "All files (*)";
+  filters << tvh5Filter << tvsmFilter << "All files (*)";
 
   QFileDialog fileDialog(tomviz::mainWidget(), tr("Save State File"),
                          QString(), filters.join(";;"));
@@ -93,7 +100,8 @@ bool SaveLoadStateReaction::loadState()
 
 bool SaveLoadStateReaction::loadState(const QString& filename)
 {
-  if (ModuleManager::instance().hasDataSources()) {
+  auto* pipeline = ActiveObjects::instance().pipeline();
+  if (pipeline && !pipeline->nodes().isEmpty()) {
     if (QMessageBox::Yes !=
         QMessageBox::warning(tomviz::mainWidget(), "Load State Warning",
                              "Current data and operators will be cleared when "
@@ -106,9 +114,10 @@ bool SaveLoadStateReaction::loadState(const QString& filename)
 
   bool success = false;
   if (filename.endsWith(".tvh5")) {
-    success = loadTvh5(filename);
+    success = loadTvh5(filename, /*executePipelines=*/true);
   } else if (filename.endsWith(".tvsm")) {
-    success = loadTvsm(filename);
+    bool executePipelines = automaticallyExecutePipelines();
+    success = loadTvsm(filename, executePipelines);
   } else {
     qCritical() << "Unknown state format for file: " << filename;
     return false;
@@ -124,12 +133,126 @@ bool SaveLoadStateReaction::loadState(const QString& filename)
   return success;
 }
 
-bool SaveLoadStateReaction::loadTvh5(const QString& filename)
+namespace {
+
+/// Kick consume() on every LegacyModuleSink whose inputs are ready,
+/// so pre-loaded upstream data gets wired into the VTK filter and
+/// rendered. Does NOT call Pipeline::execute() — transforms and
+/// sources are untouched. Used in the "don't auto execute" path so
+/// the user sees whatever data was already restored (e.g. from .tvh5
+/// payload groups) without any pipeline actually running.
+void consumeReadySinks(pipeline::Pipeline* pipeline)
 {
-  return Tvh5Format::read(filename.toStdString());
+  for (auto* node : pipeline->nodes()) {
+    auto* sink = dynamic_cast<pipeline::LegacyModuleSink*>(node);
+    if (!sink) {
+      continue;
+    }
+    bool ready = !sink->inputPorts().isEmpty();
+    for (auto* in : sink->inputPorts()) {
+      if (!in->link() || !in->hasData()) {
+        ready = false;
+        break;
+      }
+    }
+    if (ready) {
+      sink->execute();
+    }
+  }
 }
 
-bool SaveLoadStateReaction::loadTvsm(const QString& filename)
+/// Shared end-of-load orchestration for the new-format loaders.
+/// Auto-execute path: unpause and schedule pipeline->execute(), which
+///   walks the DAG (Current nodes skipped, Stale ones re-run).
+/// Declined path: direct-consume any sink whose inputs are ready (so
+///   pre-loaded data is displayed), then pause and fire
+///   executionFinished so the deferred sink-deserialize lambdas apply
+///   their saved visibility / colormaps against the now-Current sinks.
+void finalizeNewFormatLoad(pipeline::Pipeline* pipeline,
+                           bool executePipelines)
+{
+  if (executePipelines) {
+    pipeline->setPaused(false);
+    QTimer::singleShot(0, pipeline,
+                       [pipeline]() { pipeline->execute(); });
+    return;
+  }
+  consumeReadySinks(pipeline);
+  pipeline->setPaused(true);
+  QMetaObject::invokeMethod(pipeline, &pipeline::Pipeline::executionFinished,
+                            Qt::QueuedConnection);
+}
+
+/// Active-view fallback: bind any LegacyModuleSink left without a
+/// view to the application's active render view.
+void bindFallbackView(pipeline::Pipeline* pipeline)
+{
+  ActiveObjects::instance().createRenderViewIfNeeded();
+  auto* activeView = ActiveObjects::instance().activeView();
+  if (activeView &&
+      QString(activeView->GetXMLName()) != QLatin1String("RenderView")) {
+    ActiveObjects::instance().setActiveViewToFirstRenderView();
+    activeView = ActiveObjects::instance().activeView();
+  }
+  if (!activeView) {
+    return;
+  }
+  for (auto* node : pipeline->nodes()) {
+    if (auto* sink = dynamic_cast<pipeline::LegacyModuleSink*>(node)) {
+      if (!sink->view()) {
+        sink->initialize(activeView);
+      }
+    }
+  }
+}
+
+} // namespace
+
+bool SaveLoadStateReaction::loadTvh5(const QString& filename,
+                                     bool executePipelines)
+{
+  // Peek at /tomviz_state to dispatch by format. Legacy .tvh5 files
+  // have no schemaVersion (or < 2) and go through LegacyStateLoader.
+  // New-format .tvh5 files carry their pipeline graph in the same
+  // JSON and their voxels under /data/<nodeId>/<portName>.
+  QJsonObject state = Tvh5Format::readState(filename.toStdString());
+  int schemaVersion = state.value("schemaVersion").toInt(1);
+  if (state.isEmpty() || schemaVersion < 2) {
+    return pipeline::LegacyStateLoader::loadFromH5(filename, executePipelines);
+  }
+
+  auto* pipeline = ActiveObjects::instance().pipeline();
+  if (!pipeline) {
+    qWarning("No active pipeline for new-format .tvh5 load.");
+    return false;
+  }
+
+  pipeline->clear();
+
+  QMap<int, vtkSMViewProxy*> viewIdMap;
+  pipeline::LegacyStateLoader::restoreViewsLayoutsAndPalette(
+    state, pipeline, &viewIdMap);
+
+  // Source voxels live in HDF5 groups inside this file. A pre-execute
+  // hook populates source output ports directly so eager-execute in
+  // PipelineStateIO::load becomes a no-op for those sources.
+  std::string fileNameStd = filename.toStdString();
+  auto hook = [fileNameStd](pipeline::Pipeline* p,
+                             const QJsonObject& pipelineJson) {
+    Tvh5Format::populatePayloadData(p, pipelineJson, fileNameStd);
+  };
+
+  if (!pipeline::PipelineStateIO::load(pipeline, state, viewIdMap, hook)) {
+    return false;
+  }
+
+  bindFallbackView(pipeline);
+  finalizeNewFormatLoad(pipeline, executePipelines);
+  return true;
+}
+
+bool SaveLoadStateReaction::loadTvsm(const QString& filename,
+                                     bool executePipelines)
 {
   QFile openFile(filename);
   if (!openFile.open(QIODevice::ReadOnly)) {
@@ -153,28 +276,35 @@ bool SaveLoadStateReaction::loadTvsm(const QString& filename)
     }
   }
 
-  auto executeOnLoad = automaticallyExecutePipelines();
-  ModuleManager::instance().executePipelinesOnLoad(executeOnLoad);
-
   if (doc.isObject()) {
-    // This needs to run here, but needs to run after the dialog is connected
-    // and execed.  Otherwise we miss signals fired from within deserialize.
-    // So put it on a timer.
-    QTimer::singleShot(0, [doc, filename]() {
-      ModuleManager::instance().deserialize(doc.object(),
-                                            QFileInfo(filename).dir());
-    });
-    QDialog dialog(tomviz::mainWidget(), Qt::WindowStaysOnTopHint);
-    QHBoxLayout* layout = new QHBoxLayout();
-    QLabel* label = new QLabel("Please wait... loading state file");
-    layout->addWidget(label);
-    dialog.setLayout(layout);
-    connect(&ModuleManager::instance(), &ModuleManager::stateDoneLoading,
-            &dialog, &QDialog::accept);
-    dialog.exec();
-    if (ModuleManager::instance().lastLoadStateSucceeded()) {
+    auto object = doc.object();
+    int schemaVersion = object.value("schemaVersion").toInt(1);
+    if (schemaVersion >= 2) {
+      auto* pipeline = ActiveObjects::instance().pipeline();
+      if (!pipeline) {
+        qWarning("No active pipeline for new-format state load.");
+        return false;
+      }
+      // Drop whatever was in the pipeline (matching the confirmation
+      // dialog we already showed the user in loadState()).
+      pipeline->clear();
+
+      // Order matters: restore views first so sinks can bind to them
+      // during PipelineStateIO::load. The view-state application is
+      // scheduled on Pipeline::executionFinished so the camera lands
+      // after any resetCameraIfFirstSink pass runs.
+      QMap<int, vtkSMViewProxy*> viewIdMap;
+      pipeline::LegacyStateLoader::restoreViewsLayoutsAndPalette(
+        object, pipeline, &viewIdMap);
+      if (!pipeline::PipelineStateIO::load(pipeline, object, viewIdMap)) {
+        return false;
+      }
+      bindFallbackView(pipeline);
+      finalizeNewFormatLoad(pipeline, executePipelines);
       return true;
-    } // else continue to error message
+    }
+    return pipeline::LegacyStateLoader::load(
+      object, QFileInfo(filename).dir(), executePipelines);
   }
 
   if (!legacyStateFile) {
@@ -193,31 +323,46 @@ bool SaveLoadStateReaction::saveState(const QString& fileName, bool interactive)
   } else if (fileName.endsWith(".tvh5")) {
     return saveTvh5(fileName);
   }
-
   qCritical() << "Unknown format for saveState(): " << fileName;
   return false;
 }
 
-bool SaveLoadStateReaction::saveTvsm(const QString& fileName, bool interactive)
+bool SaveLoadStateReaction::saveTvh5(const QString& fileName)
 {
-  QFileInfo info(fileName);
+  auto* pip = ActiveObjects::instance().pipeline();
+  if (!pip) {
+    qWarning("No active pipeline to save.");
+    return false;
+  }
+  QJsonObject extraState;
+  ViewsLayoutsSerializer::saveActive(extraState);
+  return Tvh5Format::write(fileName.toStdString(), pip, extraState);
+}
+
+bool SaveLoadStateReaction::saveTvsm(const QString& fileName, bool /*interactive*/)
+{
   QFile saveFile(fileName);
   if (!saveFile.open(QIODevice::WriteOnly)) {
     qWarning("Couldn't open save file.");
     return false;
   }
 
-  QJsonObject state;
-  auto success =
-    ModuleManager::instance().serialize(state, info.dir(), interactive);
-  QJsonDocument doc(state);
-  auto writeSuccess = saveFile.write(doc.toJson());
-  return success && writeSuccess != -1;
-}
+  auto* pip = ActiveObjects::instance().pipeline();
+  if (!pip) {
+    qWarning("No active pipeline to save.");
+    return false;
+  }
 
-bool SaveLoadStateReaction::saveTvh5(const QString& fileName)
-{
-  return Tvh5Format::write(fileName.toStdString());
+  QJsonObject state;
+  if (!pipeline::PipelineStateIO::save(pip, state)) {
+    return false;
+  }
+  // PipelineStateIO leaves views/layouts/palette to the caller;
+  // append them via the shared helper.
+  ViewsLayoutsSerializer::saveActive(state);
+
+  QJsonDocument doc(state);
+  return saveFile.write(doc.toJson()) != -1;
 }
 
 QString SaveLoadStateReaction::extractLegacyStateFileVersion(

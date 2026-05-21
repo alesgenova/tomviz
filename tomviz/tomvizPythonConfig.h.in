@@ -73,7 +73,8 @@ void PythonAppInitPrependPathWindows(const std::string& exe_dir)
   }
 
   // Prepend conda prefix site packages if available
-  std::string conda_prefix = std::getenv("CONDA_PREFIX");
+  const char* conda_prefix_env = std::getenv("CONDA_PREFIX");
+  std::string conda_prefix = conda_prefix_env ? conda_prefix_env : "";
   if (!conda_prefix.empty()) {
     PythonAppInitPrependPythonPath(conda_prefix + "/Lib/site-packages");
   }
@@ -114,7 +115,8 @@ void PythonAppInitPrependPathLinux(const std::string& exe_dir)
   }
 
   // Prepend conda prefix site packages if available
-  std::string conda_prefix = std::getenv("CONDA_PREFIX");
+  const char* conda_prefix_env = std::getenv("CONDA_PREFIX");
+  std::string conda_prefix = conda_prefix_env ? conda_prefix_env : "";
   if (!conda_prefix.empty()) {
     PythonAppInitPrependPythonPath(
         conda_prefix +
@@ -128,8 +130,12 @@ void PythonAppInitPrependPathLinux(const std::string& exe_dir)
 //---------------------------------------------------------------------------
 void PythonAppInitPrependPathOsX(const std::string& exe_dir)
 {
+  // Check for build tree: when built as a bundle, the exe is 4 levels deep
+  // (bin/tomviz.app/Contents/MacOS/), otherwise just 1 level (bin/).
   bool is_build_dir = vtksys::SystemTools::FileExists(
-    (exe_dir + "/../../../../CMakeCache.txt").c_str());
+    (exe_dir + "/../../../../CMakeCache.txt").c_str()) ||
+    vtksys::SystemTools::FileExists(
+    (exe_dir + "/../CMakeCache.txt").c_str());
   if (is_build_dir) {
     // Add ParaView directories.
     PythonAppInitPrependPythonPath(PARAVIEW_BUILD_DIR "/lib");
@@ -141,9 +147,16 @@ void PythonAppInitPrependPathOsX(const std::string& exe_dir)
     // Add tomviz Python source dir.
     PythonAppInitPrependPythonPath(TOMVIZ_PYTHON_SOURCE_DIR);
   } else {
-    // since exe_dir in <PREFiX>/bin, we do a  /../
+    // since exe_dir in <PREFIX>/bin (or Contents/MacOS), we do a  /../
     PythonAppInitPrependPythonPath(exe_dir + "/../" TOMVIZ_PYTHON_INSTALL_DIR);
-    // we don't add anything for ParaView since, ParaView takes care of that.
+
+    // Standard (non-bundle) paths
+    auto python_path = exe_dir + "/../lib/python" + PYTHON_VER;
+    PythonAppInitPrependPythonPath(python_path);
+    PythonAppInitPrependPythonPath(python_path + "/site-packages");
+    PythonAppInitPrependPythonPath(python_path + "/lib-dynload");
+
+    // Bundle-specific paths (silently skipped if directories don't exist)
     PythonAppInitPrependPythonPath(exe_dir + "/../Libraries/");
     PythonAppInitPrependPythonPath(exe_dir +
                                    "/../Libraries/python" +
@@ -155,7 +168,8 @@ void PythonAppInitPrependPathOsX(const std::string& exe_dir)
   }
 
   // Prepend conda prefix site packages if available
-  std::string conda_prefix = std::getenv("CONDA_PREFIX");
+  const char* conda_prefix_env = std::getenv("CONDA_PREFIX");
+  std::string conda_prefix = conda_prefix_env ? conda_prefix_env : "";
   if (!conda_prefix.empty()) {
     PythonAppInitPrependPythonPath(
         conda_prefix +
@@ -183,7 +197,13 @@ std::string bundlePythonPath(const std::string& exeDir)
 {
   // Return the PYTHONPATH needed upon initializtion of Python.
 #if defined(__APPLE__)
-  return exeDir + "/../Python";
+  // If running from a bundle, Python is at Contents/Python.
+  // Otherwise, use the same layout as Linux.
+  std::string bundlePath = exeDir + "/../Python";
+  if (vtksys::SystemTools::FileIsDirectory(bundlePath.c_str())) {
+    return bundlePath;
+  }
+  return exeDir + "/../lib/python" + PYTHON_VER;
 #elif defined(_WIN32)
   return "";
 #else

@@ -23,11 +23,6 @@ AxesReaction::AxesReaction(QAction* parentObject, AxesReaction::Mode mode)
     QOverload<vtkSMViewProxy*>::of(&ActiveObjects::viewChanged), this,
     &AxesReaction::updateEnableState, Qt::QueuedConnection);
 
-  QObject::connect(&ActiveObjects::instance(),
-                   static_cast<void (ActiveObjects::*)(DataSource*)>(
-                     &ActiveObjects::dataSourceChanged),
-                   this, &AxesReaction::updateEnableState);
-
   switch (m_reactionMode) {
     case SHOW_ORIENTATION_AXES:
       QObject::connect(parentObject, &QAction::toggled, this,
@@ -85,8 +80,8 @@ void AxesReaction::updateEnableState()
       parentAction()->blockSignals(false);
       break;
     case RESET_CENTER:
-      parentAction()->setEnabled(ActiveObjects::instance().activeDataSource() !=
-                                 NULL);
+      // TODO: re-enable when new pipeline provides active data bounds
+      parentAction()->setEnabled(false);
       break;
     default:
       break;
@@ -117,22 +112,7 @@ void AxesReaction::showCenterAxes(bool show_axes)
 
 void AxesReaction::resetCenterOfRotationToCenterOfCurrentData()
 {
-  pqRenderView* renderView = ActiveObjects::instance().activePqRenderView();
-  DataSource* dataSource = ActiveObjects::instance().activeDataSource();
-
-  if (!renderView || !dataSource) {
-    // qDebug() << "Active source not shown in active view. Cannot set center.";
-    return;
-  }
-
-  double bounds[6];
-  dataSource->getBounds(bounds);
-  double center[3];
-  center[0] = (bounds[1] + bounds[0]) / 2.0;
-  center[1] = (bounds[3] + bounds[2]) / 2.0;
-  center[2] = (bounds[5] + bounds[4]) / 2.0;
-  renderView->setCenterOfRotation(center);
-  renderView->render();
+  // TODO: re-implement using new pipeline to get active data bounds
 }
 
 void AxesReaction::pickCenterOfRotation(int posx, int posy)

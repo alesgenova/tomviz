@@ -1,28 +1,25 @@
-import tomviz.operators
+import tomviz.nodes
 
 
-NUMBER_OF_CHUNKS = 10
+class InvertData(tomviz.nodes.TransformNode):
 
+    def transform(self, inputs):
+        dataset = inputs["volume"]
+        self.progress.maximum = max(1, dataset.num_scalars)
 
-class InvertOperator(tomviz.operators.CancelableOperator):
+        output = dataset.apply_to_each_scalar_array(self._invert_scalars)
 
-    def transform(self, dataset):
+        if self.canceled:
+            return
+
+        return {"volume": output}
+
+    def _invert_scalars(self, scalars):
         import numpy as np
-        self.progress.maximum = NUMBER_OF_CHUNKS
 
-        scalars = dataset.active_scalars
-        if scalars is None:
-            raise RuntimeError("No scalars found!")
-
-        result = np.float32(scalars)
-        min = np.amin(scalars)
-        max = np.amax(scalars)
-        step = 0
-        for chunk in np.array_split(result, NUMBER_OF_CHUNKS):
-            if self.canceled:
-                return
-            chunk[:] = max - chunk + min
-            step += 1
-            self.progress.value = step
-
-        dataset.active_scalars = result
+        if self.canceled:
+            return
+        
+        arr = np.float32(scalars)
+        self.progress.value += 1
+        return np.amax(arr) - arr + np.amin(arr)

@@ -8,6 +8,7 @@
 
 #include <QVariantMap>
 
+#include "HDF5ReadResult.h"
 #include "core/Variant.h"
 
 class vtkImageData;
@@ -30,6 +31,9 @@ public:
   // theta angles, and it will swap x and z for tilt series.
   bool read(const std::string& fileName, DataSource* source,
             const QVariantMap& options = QVariantMap());
+  // Read everything into an HDF5ReadResult (no DataSource needed)
+  HDF5ReadResult readAll(const std::string& fileName,
+                         const QVariantMap& options = QVariantMap());
 
 private:
   // Read the dark dataset into the image data

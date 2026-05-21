@@ -47,18 +47,18 @@ def test_find_transform_from_module():
 
 def test_find_transform_function():
     # Module with a function
-    found = find_transform_function(function, None)
+    found = find_transform_function(function)
     assert (found == function.transform_scalars)
 
     # Module with operator class
-    func = find_transform_function(simple, None)
+    func = find_transform_function(simple)
     assert isinstance(func.__self__, simple.SimpleOperator)
     assert func.__func__.__name__ == 'transform_scalars'
     assert func(None)
 
     # Module with none
     with pytest.raises(Exception):
-        find_transform_function(unittest, None)
+        find_transform_function(unittest)
 
 
 def test_is_cancelable():
@@ -78,38 +78,42 @@ def test_find_operators():
     expected = [
         {
             'jsonPath': 'syntaxerror.json',
-            'loadError': None,
             'label': 'Syntax Error Op',
-            'valid': False,
-            'pythonPath': 'syntaxerror.py'
+            'pythonPath': 'syntaxerror.py',
+            'type': 'legacy_transform',
+            'valid': True,
         },
         {
             'label': 'function',
+            'pythonPath': 'function.py',
+            'type': 'legacy_transform',
             'valid': True,
-            'pythonPath': 'function.py'
         },
         {
-            'loadError': None,
             'label': 'two',
-            'valid': False,
-            'pythonPath': 'two.py'
+            'pythonPath': 'two.py',
+            'type': 'legacy_transform',
+            'valid': True,
         },
         {
             'label': 'cancelable',
+            'pythonPath': 'cancelable.py',
+            'type': 'legacy_transform',
             'valid': True,
-            'pythonPath': 'cancelable.py'
         },
         {
             'label': 'simple',
+            'pythonPath': 'simple.py',
+            'type': 'legacy_transform',
             'valid': True,
-            'pythonPath': 'simple.py'
         },
         {
             'jsonPath': 'invalidjson.json',
             'label': 'invalidjson',
             'loadError': None,
             'pythonPath': 'invalidjson.py',
-            'valid': False
+            'type': 'legacy_transform',
+            'valid': False,
         }
     ]
 

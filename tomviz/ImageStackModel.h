@@ -6,7 +6,7 @@
 
 #include <QAbstractTableModel>
 
-#include "DataSource.h"
+#include "legacy/DataSource.h"
 
 #include <QFileInfo>
 #include <QModelIndex>

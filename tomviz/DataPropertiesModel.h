@@ -6,8 +6,6 @@
 
 #include <QAbstractTableModel>
 
-#include "DataSource.h"
-
 #include <QModelIndex>
 #include <QString>
 

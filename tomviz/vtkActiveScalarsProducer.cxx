@@ -26,13 +26,20 @@ void vtkActiveScalarsProducer::SetOutput(vtkDataObject* newOutput)
 {
   auto oldOutput = this->OriginalOutput;
   if (newOutput != oldOutput) {
+    // Release the previous internal Output before overwriting. Without
+    // this, every re-execution leaks the previous wrapper vtkImageData,
+    // which still holds (via its ShallowCopy'd PointData) refs to the
+    // previous image's scalar arrays — pinning the entire previous voxel
+    // payload in memory.
+    if (this->Output) {
+      this->Output->Delete();
+      this->Output = nullptr;
+    }
+
     if (newOutput) {
       newOutput->Register(this);
       this->Output = vtkImageData::New();
       this->Output->ShallowCopy(newOutput);
-    } else {
-      this->Output->Delete();
-      this->Output = nullptr;
     }
 
     this->OriginalOutput = newOutput;

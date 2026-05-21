@@ -69,12 +69,28 @@ class Progress:
 
     def _data(self, value):
         from tomviz._internal import in_application
-        if in_application():
-            # Make sure this is a vtkDataObject before setting
-            from tomviz._internal import convert_to_vtk_data_object
-            value = convert_to_vtk_data_object(value)
 
-        self._operator._operator_wrapper.progress_data = value
+        # Multi-port routing: when the wrapper advertises a primary
+        # port name (the new pipeline does; the legacy app's wrapper
+        # doesn't), translate the bare-value form into the explicit
+        # {port_name: payload} form before forwarding. Operators that
+        # already pass a dict (multi-port preview) are passed through
+        # untouched.
+        wrapper = self._operator._operator_wrapper
+        primary = getattr(wrapper, 'primary_port', None)
+        if primary and not isinstance(value, dict):
+            value = {primary: value}
+
+        if in_application():
+            # Make sure each payload is a vtkDataObject before setting.
+            from tomviz._internal import convert_to_vtk_data_object
+            if isinstance(value, dict):
+                value = {k: convert_to_vtk_data_object(v)
+                         for k, v in value.items()}
+            else:
+                value = convert_to_vtk_data_object(value)
+
+        wrapper.progress_data = value
 
     # Write-only property to update child data
     data = property(fset=_data,

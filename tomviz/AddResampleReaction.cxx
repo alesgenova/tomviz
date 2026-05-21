@@ -4,13 +4,19 @@
 #include "AddResampleReaction.h"
 
 #include "ActiveObjects.h"
-#include "DataSource.h"
+#include "legacy/DataSource.h"
 #include "LoadDataReaction.h"
 #include "Utilities.h"
+
+#include "pipeline/PortData.h"
+#include "pipeline/PortType.h"
+#include "pipeline/SourceNode.h"
+#include "pipeline/data/VolumeData.h"
 
 #include <vtkImageData.h>
 #include <vtkImageReslice.h>
 #include <vtkNew.h>
+#include <vtkSmartPointer.h>
 #include <vtkTrivialProducer.h>
 
 #include <vtkSMSourceProxy.h>
@@ -29,16 +35,15 @@ AddResampleReaction::AddResampleReaction(QAction* parentObject)
   : pqReaction(parentObject)
 {
   connect(&ActiveObjects::instance(),
-          static_cast<void (ActiveObjects::*)(DataSource*)>(
-            &ActiveObjects::dataSourceChanged),
+          &ActiveObjects::activePipelineChanged,
           this, &AddResampleReaction::updateEnableState);
   updateEnableState();
 }
 
 void AddResampleReaction::updateEnableState()
 {
-  parentAction()->setEnabled(ActiveObjects::instance().activeDataSource() !=
-                             nullptr);
+  parentAction()->setEnabled(
+    ActiveObjects::instance().pipeline() != nullptr);
 }
 
 namespace {
@@ -51,7 +56,6 @@ vtkImageData* imageData(DataSource* source)
 
 void AddResampleReaction::resample(DataSource* source)
 {
-  source = source ? source : ActiveObjects::instance().activeParentDataSource();
   if (!source) {
     qDebug() << "Exiting early - no data :-(";
     return;
@@ -117,20 +121,19 @@ void AddResampleReaction::resample(DataSource* source)
     reslice->SetOutputOrigin(newOrigin);
     reslice->Update();
 
-    // Create a DataSource and set its data to the resampled data
-    // TODO - cloning here is really expensive memory-wise, we should figure
-    // out a different way to do it
-    // N.B. This does not clone the attached operators.
-    DataSource* resampledData = source->clone();
-    QString name = resampledData->label();
-    name = "Downsampled_" + name;
-    resampledData->setLabel(name);
-    auto t = resampledData->producer();
-    t->SetOutput(reslice->GetOutput());
-    resampledData->dataModified();
+    // Create a SourceNode with the resampled data
+    auto* newSource = new pipeline::SourceNode();
+    QString name = "Downsampled_" + source->label();
+    newSource->setLabel(name);
+    newSource->addOutput("volume", pipeline::PortType::ImageData);
+    vtkSmartPointer<vtkImageData> resampledImage = reslice->GetOutput();
+    auto vol = std::make_shared<pipeline::VolumeData>(resampledImage);
+    vol->setLabel(name);
+    newSource->setOutputData(
+      "volume",
+      pipeline::PortData(vol, pipeline::PortType::ImageData));
 
-    // Add the new DataSource
-    LoadDataReaction::dataSourceAdded(resampledData);
+    LoadDataReaction::sourceNodeAdded(newSource);
   }
 }
 } // namespace tomviz

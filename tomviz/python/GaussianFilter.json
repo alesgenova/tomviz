@@ -1,14 +1,16 @@
 {
-  "name" : "GaussianFilter",
-  "label" : "Gaussian Blur",
-  "description" : "Apply an isotropic Gaussian filter to 3D volume. The standard deviation (sigma) can be specified below:",
-  "parameters" : [
+  "name": "GaussianFilter",
+  "label": "Gaussian Blur",
+  "description": "Apply an isotropic Gaussian filter to 3D volume. The standard deviation (sigma) can be specified below:",
+  "parameters": [
     {
-      "name" : "sigma",
-      "label" : "Sigma",
-      "type" : "double",
-      "default" : 2.0,
-      "minimum" : 0.0
+      "name": "sigma",
+      "label": "Sigma",
+      "type": "double",
+      "default": 2.0,
+      "minimum": 0.0
     }
-  ]
+  ],
+  "inputType": "ImageData",
+  "outputType": "ImageData"
 }

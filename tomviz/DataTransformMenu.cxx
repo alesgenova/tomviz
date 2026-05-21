@@ -7,7 +7,6 @@
 #include <QMainWindow>
 #include <QMenu>
 
-#include "AddExpressionReaction.h"
 #include "AddPythonTransformReaction.h"
 #include "ArrayWranglerReaction.h"
 #include "CloneDataReaction.h"
@@ -35,70 +34,99 @@ void DataTransformMenu::buildTransforms()
   QMenu* menu = m_transformMenu;
   menu->clear();
 
-  // Build the Data Transforms menu
   auto customPythonAction = menu->addAction("Custom Transform");
+  menu->addSeparator();
 
-  auto cropDataAction = menu->addAction("Crop");
-  auto convertDataAction = menu->addAction("Convert to Float");
-  auto arrayWranglerAction = menu->addAction("Convert Type");
-  auto transposeDataAction = menu->addAction("Transpose Data");
-  auto removeArraysAction = menu->addAction("Remove Arrays");
+  // === Data Management submenu ===
+  QMenu* dataManagement = menu->addMenu("Data Management");
+  auto cropDataAction = dataManagement->addAction("Crop");
+  auto cylindricalCropAction = dataManagement->addAction("Cylindrical Crop");
+  auto convertDataAction = dataManagement->addAction("Convert to Float");
+  auto arrayWranglerAction = dataManagement->addAction("Convert Type");
+  auto transposeDataAction = dataManagement->addAction("Transpose Data");
+  auto removeArraysAction = dataManagement->addAction("Remove Arrays");
   auto reinterpretSignedToUnignedAction =
-    menu->addAction("Reinterpret Signed to Unsigned");
-  menu->addSeparator();
-  auto manualManipulationAction = menu->addAction("Manual Manipulation");
-  auto shiftUniformAction = menu->addAction("Shift Volume");
-  auto deleteSliceAction = menu->addAction("Delete Slices");
-  auto padVolumeAction = menu->addAction("Pad Volume");
-  auto downsampleByTwoAction = menu->addAction("Bin Volume x2");
-  auto resampleAction = menu->addAction("Resample");
-  auto rotateAction = menu->addAction("Rotate");
-  auto clearAction = menu->addAction("Clear Subvolume");
-  auto swapAction = menu->addAction("Swap Axes");
-  auto registrationAction = menu->addAction("Registration");
-  menu->addSeparator();
-  auto setNegativeVoxelsToZeroAction =
-    menu->addAction("Set Negative Voxels To Zero");
-  auto addConstantAction = menu->addAction("Add Constant");
-  auto invertDataAction = menu->addAction("Invert Data");
-  auto squareRootAction = menu->addAction("Square Root Data");
-  auto cropEdgesAction = menu->addAction("Clip Edges");
-  auto hannWindowAction = menu->addAction("Hann Window");
-  auto fftAbsLogAction = menu->addAction("FFT (abs log)");
-  auto gradientMagnitudeSobelAction = menu->addAction("Gradient Magnitude");
-  auto unsharpMaskAction = menu->addAction("Unsharp Mask");
-  auto laplaceFilterAction = menu->addAction("Laplace Sharpen");
-  auto gaussianFilterAction = menu->addAction("Gaussian Blur");
-  auto wienerAction = menu->addAction("Wiener Filter");
-  auto TVminAction = menu->addAction("Remove Stripes, Curtaining, Scratches");
-  auto peronaMalikeAnisotropicDiffusionAction =
-    menu->addAction("Perona-Malik Anisotropic Diffusion");
-  auto medianFilterAction = menu->addAction("Median Filter");
-  auto circleMaskAction = menu->addAction("Circle Mask");
-  auto moleculeAction = menu->addAction("Add Molecule");
-  menu->addSeparator();
-  auto tortuosityAction = menu->addAction("Tortuosity");
-  auto poreSizeAction = menu->addAction("Pore Size Distribution");
-  menu->addSeparator();
-  auto psdAction = menu->addAction("Power Spectrum Density");
-  auto fscAction = menu->addAction("Fourier Shell Correlation");
-  auto deconvolutionDenoiseAction = menu->addAction("Deconvolution Denoise");
-  auto similarityMetricsAction = menu->addAction("Similarity Metrics");
-  menu->addSeparator();
-  auto cloneAction = menu->addAction("Clone");
-  auto deleteDataAction = menu->addAction(
+    dataManagement->addAction("Reinterpret Signed to Unsigned");
+  dataManagement->addSeparator();
+  auto cloneAction = dataManagement->addAction("Clone");
+  auto deleteDataAction = dataManagement->addAction(
     QIcon(":/QtWidgets/Icons/pqDelete.svg"), "Delete Data and Modules");
   deleteDataAction->setToolTip("Delete Data");
 
+  // === Volume Manipulation submenu ===
+  QMenu* volumeManip = menu->addMenu("Volume Manipulation");
+  // FIXME: staged for removal
+  auto manualManipulationAction =
+    volumeManip->addAction("Manual Manipulation");
+  manualManipulationAction->setVisible(false);
+  auto shiftUniformAction = volumeManip->addAction("Shift Volume");
+  auto deleteSliceAction = volumeManip->addAction("Delete Slices");
+  auto padVolumeAction = volumeManip->addAction("Pad Volume");
+  auto downsampleByTwoAction = volumeManip->addAction("Bin Volume x2");
+  auto resampleAction = volumeManip->addAction("Resample");
+  auto rotateAction = volumeManip->addAction("Rotate");
+  auto clearAction = volumeManip->addAction("Clear Subvolume");
+  auto swapAction = volumeManip->addAction("Swap Axes");
+  // FIXME: staged for removal
+  auto registrationAction = volumeManip->addAction("Registration");
+  registrationAction->setVisible(false);
+
+  // === Math Operations submenu ===
+  QMenu* mathOps = menu->addMenu("Math Operations");
+  auto setNegativeVoxelsToZeroAction =
+    mathOps->addAction("Set Negative Voxels To Zero");
+  auto addConstantAction = mathOps->addAction("Add Constant");
+  auto invertDataAction = mathOps->addAction("Invert Data");
+  auto squareRootAction = mathOps->addAction("Square Root Data");
+  auto cropEdgesAction = mathOps->addAction("Clip Edges");
+  auto hannWindowAction = mathOps->addAction("Hann Window");
+  auto fftAbsLogAction = mathOps->addAction("FFT (abs log)");
+
+  // === Filters & Smoothing submenu ===
+  QMenu* filters = menu->addMenu("Filters && Smoothing");
+  auto gradientMagnitudeSobelAction =
+    filters->addAction("Gradient Magnitude");
+  auto unsharpMaskAction = filters->addAction("Unsharp Mask");
+  auto laplaceFilterAction = filters->addAction("Laplace Sharpen");
+  auto gaussianFilterAction = filters->addAction("Gaussian Blur");
+  auto wienerAction = filters->addAction("Wiener Filter");
+  auto TVminAction =
+    filters->addAction("Remove Stripes, Curtaining, Scratches");
+  auto peronaMalikeAnisotropicDiffusionAction =
+    filters->addAction("Perona-Malik Anisotropic Diffusion");
+  auto medianFilterAction = filters->addAction("Median Filter");
+  auto circleMaskAction = filters->addAction("Circle Mask");
+
+  // === Material Analysis submenu ===
+  QMenu* materialAnalysis = menu->addMenu("Material Analysis");
+  auto tortuosityAction = materialAnalysis->addAction("Tortuosity");
+  auto poreSizeAction =
+    materialAnalysis->addAction("Pore Size Distribution");
+  auto moleculeAction = materialAnalysis->addAction("Add Molecule");
+
+  // === Metrics & Spectral submenu ===
+  QMenu* metrics = menu->addMenu("Metrics && Spectral");
+  auto psdAction = metrics->addAction("Power Spectrum Density");
+  auto fscAction = metrics->addAction("Fourier Shell Correlation");
+  auto deconvolutionDenoiseAction =
+    metrics->addAction("Deconvolution Denoise");
+  auto similarityMetricsAction = metrics->addAction("Similarity Metrics");
+
   // Add our Python script reactions, these compose Python into menu entries.
-  new AddExpressionReaction(customPythonAction);
+  new AddPythonTransformReaction(
+    customPythonAction, "Custom Transform",
+    readInPythonScript("DefaultCustomTransform"));
   new CropReaction(cropDataAction, mainWindow);
+  new AddPythonTransformReaction(
+    cylindricalCropAction, "Cylindrical Crop",
+    readInPythonScript("CylindricalCrop"),
+    readInJSONDescription("CylindricalCrop"));
   new ConvertToFloatReaction(convertDataAction);
   new ArrayWranglerReaction(arrayWranglerAction, mainWindow);
   new TransposeDataReaction(transposeDataAction, mainWindow);
   new AddPythonTransformReaction(
     removeArraysAction, "Remove Arrays",
-    readInPythonScript("RemoveArrays"), false, false, false,
+    readInPythonScript("RemoveArrays"),
     readInJSONDescription("RemoveArrays"));
   new AddPythonTransformReaction(
     reinterpretSignedToUnignedAction, "Reinterpret Signed to Unsigned",
@@ -106,49 +134,48 @@ void DataTransformMenu::buildTransforms()
 
   new AddPythonTransformReaction(
     manualManipulationAction, "Manual Manipulation",
-    readInPythonScript("ManualManipulation"), false, false, false,
+    readInPythonScript("ManualManipulation"),
     readInJSONDescription("ManualManipulation"));
   new AddPythonTransformReaction(
     shiftUniformAction, "Shift Volume",
-    readInPythonScript("Shift_Stack_Uniformly"), false, false, false,
+    readInPythonScript("Shift_Stack_Uniformly"),
     readInJSONDescription("Shift_Stack_Uniformly"));
   new AddPythonTransformReaction(deleteSliceAction, "Delete Slices",
                                  readInPythonScript("DeleteSlices"),
-                                 false, false, false,
                                  readInJSONDescription("DeleteSlices"));
   new AddPythonTransformReaction(padVolumeAction, "Pad Volume",
-                                 readInPythonScript("Pad_Data"), false, false,
-                                 false, readInJSONDescription("Pad_Data"));
+                                 readInPythonScript("Pad_Data"),
+                                 readInJSONDescription("Pad_Data"));
   new AddPythonTransformReaction(downsampleByTwoAction, "Bin Volume x2",
                                  readInPythonScript("BinVolumeByTwo"));
   new AddPythonTransformReaction(resampleAction, "Resample",
-                                 readInPythonScript("Resample"), false, false,
-                                 false, readInJSONDescription("Resample"));
+                                 readInPythonScript("Resample"),
+                                 readInJSONDescription("Resample"));
   new AddPythonTransformReaction(rotateAction, "Rotate",
-                                 readInPythonScript("Rotate3D"), false, false,
-                                 false, readInJSONDescription("Rotate3D"));
+                                 readInPythonScript("Rotate3D"),
+                                 readInJSONDescription("Rotate3D"));
   new AddPythonTransformReaction(clearAction, "Clear Volume",
                                  readInPythonScript("ClearVolume"));
   new AddPythonTransformReaction(swapAction, "Swap Axes",
-                                 readInPythonScript("SwapAxes"), false, false,
-                                 false, readInJSONDescription("SwapAxes"));
+                                 readInPythonScript("SwapAxes"),
+                                 readInJSONDescription("SwapAxes"));
   new AddPythonTransformReaction(registrationAction, "Registration",
                                  readInPythonScript("ElastixRegistration"),
-                                 false, false, false,
                                  readInJSONDescription("ElastixRegistration"));
   new AddPythonTransformReaction(setNegativeVoxelsToZeroAction,
                                  "Set Negative Voxels to Zero",
                                  readInPythonScript("SetNegativeVoxelsToZero"));
   new AddPythonTransformReaction(
     addConstantAction, "Add a Constant", readInPythonScript("AddConstant"),
-    false, false, false, readInJSONDescription("AddConstant"));
+    readInJSONDescription("AddConstant"));
   new AddPythonTransformReaction(invertDataAction, "Invert Data",
-                                 readInPythonScript("InvertData"));
+                                 readInPythonScript("InvertData"),
+                                 readInJSONDescription("InvertData"));
   new AddPythonTransformReaction(squareRootAction, "Square Root Data",
                                  readInPythonScript("Square_Root_Data"));
   new AddPythonTransformReaction(cropEdgesAction, "Clip Edges",
-                                 readInPythonScript("ClipEdges"), false, true,
-                                 false, readInJSONDescription("ClipEdges"));
+                                 readInPythonScript("ClipEdges"),
+                                 readInJSONDescription("ClipEdges"));
   new AddPythonTransformReaction(hannWindowAction, "Hann Window",
                                  readInPythonScript("HannWindow3D"));
   new AddPythonTransformReaction(fftAbsLogAction, "FFT (ABS LOG)",
@@ -157,65 +184,62 @@ void DataTransformMenu::buildTransforms()
                                  "Gradient Magnitude",
                                  readInPythonScript("GradientMagnitude_Sobel"));
   new AddPythonTransformReaction(
-    unsharpMaskAction, "Unsharp Mask", readInPythonScript("UnsharpMask"), false,
-    false, false, readInJSONDescription("UnsharpMask"));
+    unsharpMaskAction, "Unsharp Mask", readInPythonScript("UnsharpMask"),
+    readInJSONDescription("UnsharpMask"));
   new AddPythonTransformReaction(laplaceFilterAction, "Laplace Sharpen",
                                  readInPythonScript("LaplaceFilter"));
   new AddPythonTransformReaction(
-    wienerAction, "Wiener Filter", readInPythonScript("WienerFilter"), false,
-    false, false, readInJSONDescription("WienerFilter"));
+    wienerAction, "Wiener Filter", readInPythonScript("WienerFilter"),
+    readInJSONDescription("WienerFilter"));
   new AddPythonTransformReaction(TVminAction, "TV_Filter",
-                                 readInPythonScript("TV_Filter"), false, false,
-                                 false, readInJSONDescription("TV_Filter"));
+                                 readInPythonScript("TV_Filter"),
+                                 readInJSONDescription("TV_Filter"));
   new AddPythonTransformReaction(
     gaussianFilterAction, "Gaussian Blur", readInPythonScript("GaussianFilter"),
-    false, false, false, readInJSONDescription("GaussianFilter"));
+    readInJSONDescription("GaussianFilter"));
   new AddPythonTransformReaction(
     peronaMalikeAnisotropicDiffusionAction,
     "Perona-Malik Anisotropic Diffusion",
-    readInPythonScript("PeronaMalikAnisotropicDiffusion"), false, false, false,
+    readInPythonScript("PeronaMalikAnisotropicDiffusion"),
     readInJSONDescription("PeronaMalikAnisotropicDiffusion"));
   new AddPythonTransformReaction(
     medianFilterAction, "Median Filter", readInPythonScript("MedianFilter"),
-    false, false, false, readInJSONDescription("MedianFilter"));
+    readInJSONDescription("MedianFilter"));
   new AddPythonTransformReaction(circleMaskAction, "Circle Mask",
-                                 readInPythonScript("CircleMask"), false, false,
-                                 false, readInJSONDescription("CircleMask"));
+                                 readInPythonScript("CircleMask"),
+                                 readInJSONDescription("CircleMask"));
   new AddPythonTransformReaction(
-    moleculeAction, "Add Molecule", readInPythonScript("DummyMolecule"), false,
-    false, false, readInJSONDescription("DummyMolecule"));
+    moleculeAction, "Add Molecule", readInPythonScript("DummyMolecule"),
+    readInJSONDescription("DummyMolecule"));
 
   new AddPythonTransformReaction(
-    tortuosityAction, "Tortuosity", readInPythonScript("Tortuosity"), false,
-    false, false, readInJSONDescription("Tortuosity"));
+    tortuosityAction, "Tortuosity", readInPythonScript("Tortuosity"),
+    readInJSONDescription("Tortuosity"));
   new AddPythonTransformReaction(
     poreSizeAction, "Pore Size Distribution",
-    readInPythonScript("PoreSizeDistribution"), false, false, false,
+    readInPythonScript("PoreSizeDistribution"),
     readInJSONDescription("PoreSizeDistribution"));
 
   new AddPythonTransformReaction(
     psdAction, "Power Spectrum Density",
-    readInPythonScript("PowerSpectrumDensity"), false, false, false,
+    readInPythonScript("PowerSpectrumDensity"),
     readInJSONDescription("PowerSpectrumDensity"));
   new AddPythonTransformReaction(
     fscAction, "Fourier Shell Correlation",
-    readInPythonScript("FourierShellCorrelation"), false, false, false,
+    readInPythonScript("FourierShellCorrelation"),
     readInJSONDescription("FourierShellCorrelation"));
   new AddPythonTransformReaction(
     deconvolutionDenoiseAction, "Deconvolution Denoise",
-    readInPythonScript("DeconvolutionDenoise"), true, false, false,
+    readInPythonScript("DeconvolutionDenoise"),
     readInJSONDescription("DeconvolutionDenoise"));
   new AddPythonTransformReaction(
     similarityMetricsAction, "Similarity Metrics",
-    readInPythonScript("SimilarityMetrics"), false, false, false,
+    readInPythonScript("SimilarityMetrics"),
     readInJSONDescription("SimilarityMetrics"));
 
   new CloneDataReaction(cloneAction);
   new DeleteDataReaction(deleteDataAction);
 
-  // TODO - enable/disable menu actions depending on whether the selected
-  // DataSource has
-  // the properties required by the Data Transform
 }
 
 void DataTransformMenu::buildSegmentation()
@@ -224,77 +248,88 @@ void DataTransformMenu::buildSegmentation()
   menu->clear();
 
   auto customPythonITKAction = menu->addAction("Custom ITK Transform");
-  menu->addSeparator();
-  auto binaryThresholdAction = menu->addAction("Binary Threshold");
-  auto otsuMultipleThresholdAction = menu->addAction("Otsu Multiple Threshold");
-  auto connectedComponentsAction = menu->addAction("Connected Components");
-  menu->addSeparator();
-  auto binaryDilateAction = menu->addAction("Binary Dilate");
-  auto binaryErodeAction = menu->addAction("Binary Erode");
-  auto binaryOpenAction = menu->addAction("Binary Open");
-  auto binaryCloseAction = menu->addAction("Binary Close");
-  auto binaryMinMaxCurvatureFlowAction =
-    menu->addAction("Binary MinMax Curvature Flow");
-  menu->addSeparator();
-  auto labelObjectAttributesAction = menu->addAction("Label Object Attributes");
-  auto labelObjectPrincipalAxesAction =
-    menu->addAction("Label Object Principal Axes");
-  auto distanceFromAxisAction =
-    menu->addAction("Label Object Distance From Principal Axis");
-  menu->addSeparator();
-  auto segmentParticlesAction = menu->addAction("Segment Particles");
-  auto segmentPoresAction = menu->addAction("Segment Pores");
 
-  new AddExpressionReaction(customPythonITKAction);
+  // === Thresholding submenu ===
+  QMenu* thresholding = menu->addMenu("Thresholding");
+  auto binaryThresholdAction = thresholding->addAction("Binary Threshold");
+  auto otsuMultipleThresholdAction =
+    thresholding->addAction("Otsu Multiple Threshold");
+  auto connectedComponentsAction =
+    thresholding->addAction("Connected Components");
+
+  // === Morphology submenu ===
+  QMenu* morphology = menu->addMenu("Morphology");
+  auto binaryDilateAction = morphology->addAction("Binary Dilate");
+  auto binaryErodeAction = morphology->addAction("Binary Erode");
+  auto binaryOpenAction = morphology->addAction("Binary Open");
+  auto binaryCloseAction = morphology->addAction("Binary Close");
+  auto binaryMinMaxCurvatureFlowAction =
+    morphology->addAction("Binary MinMax Curvature Flow");
+
+  // === Label Analysis submenu ===
+  QMenu* labelAnalysis = menu->addMenu("Label Analysis");
+  auto labelObjectAttributesAction =
+    labelAnalysis->addAction("Label Object Attributes");
+  auto labelObjectPrincipalAxesAction =
+    labelAnalysis->addAction("Label Object Principal Axes");
+  auto distanceFromAxisAction =
+    labelAnalysis->addAction("Label Object Distance From Principal Axis");
+
+  // === Segmentation Workflows submenu ===
+  QMenu* segWorkflows = menu->addMenu("Segmentation Workflows");
+  auto segmentParticlesAction = segWorkflows->addAction("Segment Particles");
+  auto segmentPoresAction = segWorkflows->addAction("Segment Pores");
+
+  new AddPythonTransformReaction(
+    customPythonITKAction, "Custom ITK Transform",
+    readInPythonScript("DefaultITKTransform"));
   new AddPythonTransformReaction(binaryThresholdAction, "Binary Threshold",
-                                 readInPythonScript("BinaryThreshold"), false,
-                                 false, false,
+                                 readInPythonScript("BinaryThreshold"),
                                  readInJSONDescription("BinaryThreshold"));
   new AddPythonTransformReaction(
     otsuMultipleThresholdAction, "Otsu Multiple Threshold",
-    readInPythonScript("OtsuMultipleThreshold"), false, false, false,
+    readInPythonScript("OtsuMultipleThreshold"),
     readInJSONDescription("OtsuMultipleThreshold"));
   new AddPythonTransformReaction(
     connectedComponentsAction, "Connected Components",
-    readInPythonScript("ConnectedComponents"), false, false, false,
+    readInPythonScript("ConnectedComponents"),
     readInJSONDescription("ConnectedComponents"));
   new AddPythonTransformReaction(
     binaryDilateAction, "Binary Dilate", readInPythonScript("BinaryDilate"),
-    false, false, false, readInJSONDescription("BinaryDilate"));
+    readInJSONDescription("BinaryDilate"));
   new AddPythonTransformReaction(
-    binaryErodeAction, "Binary Erode", readInPythonScript("BinaryErode"), false,
-    false, false, readInJSONDescription("BinaryErode"));
+    binaryErodeAction, "Binary Erode", readInPythonScript("BinaryErode"),
+    readInJSONDescription("BinaryErode"));
   new AddPythonTransformReaction(binaryOpenAction, "Binary Open",
-                                 readInPythonScript("BinaryOpen"), false, false,
-                                 false, readInJSONDescription("BinaryOpen"));
+                                 readInPythonScript("BinaryOpen"),
+                                 readInJSONDescription("BinaryOpen"));
   new AddPythonTransformReaction(
-    binaryCloseAction, "Binary Close", readInPythonScript("BinaryClose"), false,
-    false, false, readInJSONDescription("BinaryClose"));
+    binaryCloseAction, "Binary Close", readInPythonScript("BinaryClose"),
+    readInJSONDescription("BinaryClose"));
   new AddPythonTransformReaction(
     binaryMinMaxCurvatureFlowAction, "Binary MinMax Curvature Flow",
-    readInPythonScript("BinaryMinMaxCurvatureFlow"), false, false, false,
+    readInPythonScript("BinaryMinMaxCurvatureFlow"),
     readInJSONDescription("BinaryMinMaxCurvatureFlow"));
 
   new AddPythonTransformReaction(
     labelObjectAttributesAction, "Label Object Attributes",
-    readInPythonScript("LabelObjectAttributes"), false, false, false,
+    readInPythonScript("LabelObjectAttributes"),
     readInJSONDescription("LabelObjectAttributes"));
   new AddPythonTransformReaction(
     labelObjectPrincipalAxesAction, "Label Object Principal Axes",
-    readInPythonScript("LabelObjectPrincipalAxes"), false, false, false,
+    readInPythonScript("LabelObjectPrincipalAxes"),
     readInJSONDescription("LabelObjectPrincipalAxes"));
   new AddPythonTransformReaction(
     distanceFromAxisAction, "Label Object Distance From Principal Axis",
-    readInPythonScript("LabelObjectDistanceFromPrincipalAxis"), false, false,
-    false, readInJSONDescription("LabelObjectDistanceFromPrincipalAxis"));
+    readInPythonScript("LabelObjectDistanceFromPrincipalAxis"),
+    readInJSONDescription("LabelObjectDistanceFromPrincipalAxis"));
 
   new AddPythonTransformReaction(segmentParticlesAction, "Segment Particles",
-                                 readInPythonScript("SegmentParticles"), false,
-                                 false, false,
+                                 readInPythonScript("SegmentParticles"),
                                  readInJSONDescription("SegmentParticles"));
   new AddPythonTransformReaction(
     segmentPoresAction, "Segment Pores", readInPythonScript("SegmentPores"),
-    false, false, false, readInJSONDescription("SegmentPores"));
+    readInJSONDescription("SegmentPores"));
 }
 
 void DataTransformMenu::updateActions() {}

@@ -4,12 +4,16 @@
 #include "LoadStackReaction.h"
 
 #include "ActiveObjects.h"
-#include "DataSource.h"
+#include "legacy/DataSource.h"
 #include "ImageStackDialog.h"
 #include "LoadDataReaction.h"
-#include "Pipeline.h"
-#include "SetTiltAnglesOperator.h"
 #include "Utilities.h"
+
+#include "pipeline/Pipeline.h"
+#include "pipeline/PortUtils.h"
+#include "pipeline/SourceNode.h"
+#include "pipeline/data/VolumeData.h"
+#include "pipeline/transforms/SetTiltAnglesTransform.h"
 
 #include <vtkImageData.h>
 #include <vtkNew.h>
@@ -29,27 +33,29 @@ void LoadStackReaction::onTriggered()
   loadData();
 }
 
-DataSource* LoadStackReaction::loadData(const QStringList& fileNames)
+pipeline::SourceNode* LoadStackReaction::loadData(
+  const QStringList& fileNames)
 {
   ImageStackDialog dialog(tomviz::mainWidget());
   dialog.processFiles(fileNames);
   return execStackDialog(dialog);
 }
 
-DataSource* LoadStackReaction::loadData(const QString& directory)
+pipeline::SourceNode* LoadStackReaction::loadData(const QString& directory)
 {
   ImageStackDialog dialog(tomviz::mainWidget());
   dialog.processDirectory(directory);
   return execStackDialog(dialog);
 }
 
-DataSource* LoadStackReaction::loadData()
+pipeline::SourceNode* LoadStackReaction::loadData()
 {
   ImageStackDialog dialog(tomviz::mainWidget());
   return execStackDialog(dialog);
 }
 
-DataSource* LoadStackReaction::execStackDialog(ImageStackDialog& dialog)
+pipeline::SourceNode* LoadStackReaction::execStackDialog(
+  ImageStackDialog& dialog)
 {
   int result = dialog.exec();
   if (result == QDialog::Accepted) {
@@ -59,11 +65,15 @@ DataSource* LoadStackReaction::execStackDialog(ImageStackDialog& dialog)
     if (fNames.size() < 1) {
       return nullptr;
     }
-    DataSource* dataSource = LoadDataReaction::loadData(fNames);
+    auto* source = LoadDataReaction::loadData(fNames);
+    if (!source) {
+      return nullptr;
+    }
+
     DataSource::DataSourceType stackType = dialog.getStackType();
     bool imageViewerMode = dialog.getImageViewerMode();
     if (stackType == DataSource::DataSourceType::TiltSeries) {
-      auto op = new SetTiltAnglesOperator;
+      // Build tilt angles from the stack summary
       QMap<size_t, double> angles;
       int j = 0;
       for (int i = 0; i < summary.size(); ++i) {
@@ -71,20 +81,28 @@ DataSource* LoadStackReaction::execStackDialog(ImageStackDialog& dialog)
           angles[j++] = summary[i].pos;
         }
       }
-      op->setTiltAngles(angles);
-      dataSource->addOperator(op);
 
-      // After the operator completes, update the image viewer mode
-      auto* pipeline = dataSource->pipeline();
-      connect(pipeline, &Pipeline::finished, &ActiveObjects::instance(),
-              [imageViewerMode]() {
-                ActiveObjects::instance().setImageViewerMode(imageViewerMode);
-              });
+      // Set tilt angles directly on the VolumeData
+      auto vol =
+        pipeline::getOutputData<pipeline::VolumeDataPtr>(source);
+      if (vol) {
+        QVector<double> tiltAngles(angles.size(), 0.0);
+        for (auto it = angles.constBegin(); it != angles.constEnd();
+             ++it) {
+          if (static_cast<int>(it.key()) < tiltAngles.size()) {
+            tiltAngles[static_cast<int>(it.key())] = it.value();
+          }
+        }
+        vol->setTiltAngles(tiltAngles);
+        source->setProperty("dataType", "tiltSeries");
+      }
+
+      ActiveObjects::instance().setImageViewerMode(imageViewerMode);
     } else {
       ActiveObjects::instance().setImageViewerMode(imageViewerMode);
     }
 
-    return dataSource;
+    return source;
   } else {
     return nullptr;
   }
@@ -102,7 +120,8 @@ QStringList LoadStackReaction::summaryToFileNames(
   return fileNames;
 }
 
-QList<ImageInfo> LoadStackReaction::loadTiffStack(const QStringList& fileNames)
+QList<ImageInfo> LoadStackReaction::loadTiffStack(
+  const QStringList& fileNames)
 {
   QList<ImageInfo> summary;
   vtkNew<vtkTIFFReader> reader;

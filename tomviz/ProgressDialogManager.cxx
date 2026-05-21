@@ -3,164 +3,174 @@
 
 #include "ProgressDialogManager.h"
 
-#include "DataSource.h"
-#include "ModuleManager.h"
-#include "Operator.h"
-#include "Pipeline.h"
-#include "PipelineManager.h"
+#include "pipeline/Node.h"
+#include "pipeline/Pipeline.h"
+#include "pipeline/PipelineExecutor.h"
 
 #include <QCoreApplication>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QKeyEvent>
+#include <QLabel>
 #include <QMainWindow>
-#include <QMap>
 #include <QProgressBar>
 #include <QStatusBar>
 #include <QVBoxLayout>
 
-#include <cassert>
-#include <iostream>
-
 namespace tomviz {
 
 ProgressDialogManager::ProgressDialogManager(QMainWindow* mw)
-  : Superclass(mw), mainWindow(mw)
+  : QObject(mw), m_mainWindow(mw)
+{}
+
+ProgressDialogManager::~ProgressDialogManager() = default;
+
+bool ProgressDialogManager::eventFilter(QObject* obj, QEvent* event)
 {
-  ModuleManager& mm = ModuleManager::instance();
-  QObject::connect(&mm, &ModuleManager::dataSourceAdded, this,
-                   &ProgressDialogManager::dataSourceAdded);
+  if (obj == m_progressDialog) {
+    if (event->type() == QEvent::KeyPress) {
+      auto* keyEvent = static_cast<QKeyEvent*>(event);
+      if (keyEvent->key() == Qt::Key_Escape) {
+        return true; // swallow
+      }
+    }
+    if (event->type() == QEvent::Close) {
+      return true; // swallow
+    }
+  }
+  return QObject::eventFilter(obj, event);
 }
 
-ProgressDialogManager::~ProgressDialogManager() {}
-
-void ProgressDialogManager::operationStarted()
+void ProgressDialogManager::setPipeline(pipeline::Pipeline* pipeline)
 {
-  QDialog* progressDialog = new QDialog(this->mainWindow);
-  progressDialog->setAttribute(Qt::WA_DeleteOnClose);
+  if (m_pipeline) {
+    m_pipeline->disconnect(this);
+    if (auto* exec = m_pipeline->executor()) {
+      exec->disconnect(this);
+    }
+  }
 
-  Operator* op = qobject_cast<Operator*>(this->sender());
-  QObject::connect(op, &Operator::transformingDone, progressDialog,
-                   &QDialog::accept);
-
-  // We have to check after we have connected to the signal as otherwise we
-  // might miss the state transition as its occurring on another thread.
-  if (op->isFinished()) {
-    progressDialog->accept();
-    progressDialog->deleteLater();
+  m_pipeline = pipeline;
+  if (!m_pipeline) {
     return;
   }
 
-  QLayout* layout = new QVBoxLayout();
-  QWidget* progressWidget = op->getCustomProgressWidget(progressDialog);
-  if (progressWidget == nullptr) {
-    QProgressBar* progressBar = new QProgressBar(progressDialog);
+  connectExecutor();
+}
+
+void ProgressDialogManager::connectExecutor()
+{
+  auto* exec = m_pipeline ? m_pipeline->executor() : nullptr;
+  if (!exec) {
+    return;
+  }
+
+  // Disconnect any previous executor.
+  disconnect(exec, nullptr, this, nullptr);
+
+  connect(exec, &pipeline::PipelineExecutor::nodeExecutionStarted, this,
+          &ProgressDialogManager::onNodeExecutionStarted);
+  connect(exec, &pipeline::PipelineExecutor::nodeExecutionFinished, this,
+          &ProgressDialogManager::onNodeExecutionFinished);
+}
+
+void ProgressDialogManager::onNodeExecutionStarted(pipeline::Node* node)
+{
+  // Close any stale dialog from a previous node.
+  if (m_progressDialog) {
+    m_progressDialog->accept();
+  }
+
+  auto* dialog = new QDialog(m_mainWindow);
+  dialog->setAttribute(Qt::WA_DeleteOnClose);
+  // Title bar with no close/minimize/maximize buttons.
+  dialog->setWindowFlags(Qt::Dialog | Qt::CustomizeWindowHint |
+                         Qt::WindowTitleHint);
+  dialog->installEventFilter(this);
+  m_progressDialog = dialog;
+
+  auto* layout = new QVBoxLayout();
+  auto* messageLabel = new QLabel(dialog);
+  messageLabel->setWordWrap(true);
+
+  QWidget* progressWidget = node->getCustomProgressWidget(dialog);
+  if (!progressWidget) {
+    auto* progressBar = new QProgressBar(dialog);
     progressBar->setMinimum(0);
-    progressBar->setMaximum(op->totalProgressSteps());
+    progressBar->setMaximum(node->totalProgressSteps());
     progressWidget = progressBar;
-    QObject::connect(op, &Operator::progressStepChanged, progressBar,
-                     &QProgressBar::setValue);
-    QObject::connect(op, &Operator::totalProgressStepsChanged, progressBar,
-                     &QProgressBar::setMaximum);
-    QObject::connect(op, &Operator::progressStepChanged, this,
-                     &ProgressDialogManager::operationProgress);
-    QObject::connect(
-      op, &Operator::progressMessageChanged, progressDialog,
-      [progressDialog, op](const QString& message) {
-        if (!message.isNull()) {
-          QString title = QString("%1 Progress").arg(op->label());
-          if (!message.isEmpty()) {
-            title = QString("%1 Progress - %2").arg(op->label()).arg(message);
-          }
-          progressDialog->setWindowTitle(title);
-        }
-      });
 
-    connect(op, &Operator::progressMessageChanged, this,
+    connect(node, &pipeline::Node::progressStepChanged, progressBar,
+            &QProgressBar::setValue);
+    connect(node, &pipeline::Node::totalProgressStepsChanged, progressBar,
+            &QProgressBar::setMaximum);
+    connect(node, &pipeline::Node::progressMessageChanged, messageLabel,
+            &QLabel::setText);
+    connect(node, &pipeline::Node::progressMessageChanged, this,
             &ProgressDialogManager::showStatusBarMessage);
-
-    layout->addWidget(progressBar);
   }
+
   layout->addWidget(progressWidget);
-  if (op->supportsCompletionMidTransform()) {
-    // Unless widget has custom progress handling, can't done it
-    QDialogButtonBox* dialogButtons =
+  layout->addWidget(messageLabel);
+
+  if (node->supportsCompletionMidExecution()) {
+    auto* buttons =
       new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
-                           Qt::Horizontal, progressDialog);
-
-    layout->addWidget(dialogButtons);
-    QObject::connect(progressDialog, &QDialog::rejected, op,
-                     &Operator::cancelTransform);
-    QObject::connect(dialogButtons, &QDialogButtonBox::rejected, progressDialog,
-                     &QDialog::reject);
-
-    QObject::connect(progressDialog, &QDialog::accepted, op,
-                     &Operator::completionTransform);
-    QObject::connect(dialogButtons, &QDialogButtonBox::accepted, progressDialog,
-                     &QDialog::accept);
-  } else if (op->supportsCancelingMidTransform()) {
-    // Unless the widget has custom progress handling, you can't cancel it.
-    QDialogButtonBox* dialogButtons = new QDialogButtonBox(
-      QDialogButtonBox::Cancel, Qt::Horizontal, progressDialog);
-    layout->addWidget(dialogButtons);
-    QObject::connect(progressDialog, &QDialog::rejected, op,
-                     &Operator::cancelTransform);
-    QObject::connect(dialogButtons, &QDialogButtonBox::rejected, progressDialog,
-                     &QDialog::reject);
+                           Qt::Horizontal, dialog);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, node,
+            &pipeline::Node::completeExecution);
+    connect(buttons, &QDialogButtonBox::accepted, buttons,
+            [buttons, messageLabel]() {
+              buttons->setEnabled(false);
+              messageLabel->setText(
+                QCoreApplication::translate("ProgressDialogManager",
+                                            "Completion pending..."));
+            });
+    connect(buttons, &QDialogButtonBox::rejected, node,
+            &pipeline::Node::cancelExecution);
+    connect(buttons, &QDialogButtonBox::rejected, buttons,
+            [buttons, messageLabel]() {
+              buttons->setEnabled(false);
+              messageLabel->setText(
+                QCoreApplication::translate("ProgressDialogManager",
+                                            "Cancel pending..."));
+            });
+  } else if (node->supportsCancelingMidExecution()) {
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel,
+                                         Qt::Horizontal, dialog);
+    layout->addWidget(buttons);
+    connect(buttons, &QDialogButtonBox::rejected, node,
+            &pipeline::Node::cancelExecution);
+    connect(buttons, &QDialogButtonBox::rejected, buttons,
+            [buttons, messageLabel]() {
+              buttons->setEnabled(false);
+              messageLabel->setText(
+                QCoreApplication::translate("ProgressDialogManager",
+                                            "Cancel pending..."));
+            });
   }
-  progressDialog->setWindowTitle(QString("%1 Progress").arg(op->label()));
-  progressDialog->setLayout(layout);
-  progressDialog->adjustSize();
-  // Increase size of dialog so we can see title, not sure there is a better
-  // way.
-  auto height = progressDialog->height();
-  progressDialog->resize(500, height);
-  progressDialog->show();
+
+  dialog->setWindowTitle(QString("%1 Progress").arg(node->label()));
+  dialog->setLayout(layout);
+  dialog->adjustSize();
+  dialog->resize(500, dialog->height());
+  dialog->show();
   QCoreApplication::processEvents();
 }
 
-void ProgressDialogManager::operatorAdded(Operator* op)
+void ProgressDialogManager::onNodeExecutionFinished(pipeline::Node* node,
+                                                    bool /*success*/)
 {
-  // Need to ensure that if we are using the docker executor we use a
-  // DirectQueued
-  // connection here, otherwise we will deadlock as the sender and receiver will
-  // will have the same thread affinity.
-  std::function<void()> connectTransformingStarted = [op, this]() {
-    auto connectionType = Qt::BlockingQueuedConnection;
-    if (op->dataSource()->pipeline()->executionMode() !=
-        Pipeline::ExecutionMode::Threaded) {
-      connectionType = Qt::DirectConnection;
-    }
-
-    connect(op, &Operator::transformingStarted, this,
-            &ProgressDialogManager::operationStarted, connectionType);
-  };
-  connectTransformingStarted();
-
-  // Recreate the connection with the correct type if the execution mode is
-  // changed.
-  connect(&PipelineManager::instance(), &PipelineManager::executionModeUpdated,
-          op, [this, connectTransformingStarted, op]() {
-            disconnect(op, &Operator::transformingStarted, this,
-                       &ProgressDialogManager::operationStarted);
-            connectTransformingStarted();
-          });
-
-  connect(
-    op,
-    static_cast<void (Operator::*)(DataSource*)>(&Operator::newChildDataSource),
-    this, &ProgressDialogManager::dataSourceAdded);
+  Q_UNUSED(node);
+  if (m_progressDialog) {
+    m_progressDialog->accept();
+  }
 }
-
-void ProgressDialogManager::dataSourceAdded(DataSource* ds)
-{
-  QObject::connect(ds, &DataSource::operatorAdded, this,
-                   &ProgressDialogManager::operatorAdded);
-}
-
-void ProgressDialogManager::operationProgress(int) {}
 
 void ProgressDialogManager::showStatusBarMessage(const QString& message)
 {
-  this->mainWindow->statusBar()->showMessage(message, 3000);
+  m_mainWindow->statusBar()->showMessage(message, 3000);
 }
+
 } // namespace tomviz

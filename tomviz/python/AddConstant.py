@@ -19,6 +19,8 @@ def transform(dataset, constant=0.0):
         constant = int(constant)
         newMin = int(newMin)
         newMax = int(newMax)
+    newMin = np.min_scalar_type(newMin).type(newMin)
+    newMax = np.min_scalar_type(newMax).type(newMax)
     for dtype in [np.uint8, np.int8, np.uint16, np.int16, np.uint32, np.int32,
                   np.uint64, np.int64, np.float32, np.float64]:
         if np.can_cast(newMin, dtype) and np.can_cast(newMax, dtype):

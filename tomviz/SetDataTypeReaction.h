@@ -6,7 +6,7 @@
 
 #include <pqReaction.h>
 
-#include "DataSource.h"
+#include "legacy/DataSource.h"
 
 class QMainWindow;
 

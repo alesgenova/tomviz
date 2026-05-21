@@ -28,6 +28,11 @@ public:
 
   void finalize();
 
+  /// Drop all cached 1D/2D histograms. The caches keep their input
+  /// imageData alive (vtkSmartPointer keys) — call this on pipeline
+  /// reset to release the memory they're pinning.
+  void clearCaches();
+
   vtkSmartPointer<vtkTable> getHistogram(vtkSmartPointer<vtkImageData> image);
   vtkSmartPointer<vtkImageData> getHistogram2D(
     vtkSmartPointer<vtkImageData> image);
@@ -47,10 +52,19 @@ private:
   HistogramManager();
   ~HistogramManager();
 
-  QMap<vtkImageData*, vtkSmartPointer<vtkTable>> m_histogramCache;
-  QMap<vtkImageData*, vtkSmartPointer<vtkImageData>> m_histogram2DCache;
-  QList<vtkImageData*> m_histogramsInProgress;
-  QList<vtkImageData*> m_histogram2DsInProgress;
+  // Cache and in-progress lists hold vtkSmartPointer keys so the
+  // imageData objects they reference can't be destroyed (and their
+  // addresses re-used by an unrelated allocation) while we're still
+  // talking about them. Bounded by `kCacheLimit` via LRU eviction so
+  // long live-update sessions don't pin arbitrary amounts of memory.
+  QMap<vtkSmartPointer<vtkImageData>, vtkSmartPointer<vtkTable>>
+    m_histogramCache;
+  QMap<vtkSmartPointer<vtkImageData>, vtkSmartPointer<vtkImageData>>
+    m_histogram2DCache;
+  QList<vtkSmartPointer<vtkImageData>> m_histogramCacheLRU;
+  QList<vtkSmartPointer<vtkImageData>> m_histogram2DCacheLRU;
+  QList<vtkSmartPointer<vtkImageData>> m_histogramsInProgress;
+  QList<vtkSmartPointer<vtkImageData>> m_histogram2DsInProgress;
   HistogramMaker* m_histogramGen;
   QThread* m_worker;
 };

@@ -152,18 +152,22 @@ def vtk_cast_map():
             'double': vtkConstants.VTK_DOUBLE
         }
 
-        # Import build options from ITK. Explicitly reference itk.Vector so
-        # that the itk::Vector type information is available when
-        # itk.BuildOptions is imported, otherwise we get an exception when
-        # importing itkBuildOptions. This is a workaround for a bug in ITK.
-        itk.Vector
-        import itkBuildOptions
+        # Determine which scalar types are available in the ITK wrapping
+        # by checking which types can be used to instantiate itk.Image.
+        available_scalars = set()
+        for possible_type in ctype_to_vtk.keys():
+            try:
+                ct = itk.ctype(possible_type)
+                itk.Image[ct, 3]
+                available_scalars.add(ct)
+            except Exception:
+                pass
 
         # Select the best supported type available in the wrapping.
         for (vtk_type, possible_image_types) in type_map.items():
             type_map[vtk_type] = None
             for possible_type in possible_image_types:
-                if itk.ctype(possible_type) in itkBuildOptions.SCALARS:
+                if itk.ctype(possible_type) in available_scalars:
                     _vtk_cast_types[vtk_type] = ctype_to_vtk[possible_type]
                     break
 
@@ -209,27 +213,27 @@ def get_python_voxel_type(dataset):
         global _itkctype_to_python_types
 
         if _itkctype_to_python_types is None:
-            import itkTypes
+            import itk
 
             _itkctype_to_python_types = {
-                itkTypes.F: float,
-                itkTypes.D: float,
-                itkTypes.LD: float,
-                itkTypes.UC: int,
-                itkTypes.US: int,
-                itkTypes.UI: int,
-                itkTypes.UL: int,
-                itkTypes.SC: int,
-                itkTypes.SS: int,
-                itkTypes.SI: int,
-                itkTypes.SL: int,
-                itkTypes.B: int
+                itk.F: float,
+                itk.D: float,
+                itk.LD: float,
+                itk.UC: int,
+                itk.US: int,
+                itk.UI: int,
+                itk.UL: int,
+                itk.SC: int,
+                itk.SS: int,
+                itk.SI: int,
+                itk.SL: int,
+                itk.B: int
             }
 
-        import itkExtras
+        import itk
 
         # Incantation for obtaining voxel type in ITK image
-        ctype = itkExtras.template(type(dataset))[1][0]
+        ctype = itk.template(type(dataset))[1][0]
         return _itkctype_to_python_types[ctype]
     except AttributeError as attribute_error:
         print("Could not get Python voxel type for dataset %s"
@@ -251,24 +255,23 @@ def convert_vtk_to_itk_image(vtk_image_data, itk_pixel_type=None):
     #itk_image.DisconnectPipeline()
     #------------------------------------------
     import itk
-    import itkTypes
     from vtkmodules.util import vtkConstants
     from vtkmodules.vtkImagingCore import vtkImageCast
     from tomviz import internal_utils
 
     itk_to_vtk_type_map = {
-        itkTypes.F: vtkConstants.VTK_FLOAT,
-        itkTypes.D: vtkConstants.VTK_DOUBLE,
-        itkTypes.LD: vtkConstants.VTK_DOUBLE,
-        itkTypes.UC: vtkConstants.VTK_UNSIGNED_CHAR,
-        itkTypes.US: vtkConstants.VTK_UNSIGNED_SHORT,
-        itkTypes.UI: vtkConstants.VTK_UNSIGNED_INT,
-        itkTypes.UL: vtkConstants.VTK_UNSIGNED_LONG,
-        itkTypes.SC: vtkConstants.VTK_CHAR,
-        itkTypes.SS: vtkConstants.VTK_SHORT,
-        itkTypes.SI: vtkConstants.VTK_INT,
-        itkTypes.SL: vtkConstants.VTK_LONG,
-        itkTypes.B: vtkConstants.VTK_INT
+        itk.F: vtkConstants.VTK_FLOAT,
+        itk.D: vtkConstants.VTK_DOUBLE,
+        itk.LD: vtkConstants.VTK_DOUBLE,
+        itk.UC: vtkConstants.VTK_UNSIGNED_CHAR,
+        itk.US: vtkConstants.VTK_UNSIGNED_SHORT,
+        itk.UI: vtkConstants.VTK_UNSIGNED_INT,
+        itk.UL: vtkConstants.VTK_UNSIGNED_LONG,
+        itk.SC: vtkConstants.VTK_CHAR,
+        itk.SS: vtkConstants.VTK_SHORT,
+        itk.SI: vtkConstants.VTK_INT,
+        itk.SL: vtkConstants.VTK_LONG,
+        itk.B: vtkConstants.VTK_INT
     }
 
     # See if we need to cast to a wrapped type in ITK.
@@ -288,9 +291,7 @@ def convert_vtk_to_itk_image(vtk_image_data, itk_pixel_type=None):
 
     array = internal_utils.get_array(vtk_image_data, order='C')
 
-    image_type = _get_itk_image_type(vtk_image_data)
-    itk_converter = itk.PyBuffer[image_type]
-    itk_image = itk_converter.GetImageFromArray(array)
+    itk_image = itk.GetImageFromArray(array)
     spacing = vtk_image_data.GetSpacing()
     origin = vtk_image_data.GetOrigin()
     itk_image.SetSpacing(spacing)
@@ -327,8 +328,7 @@ def set_array_from_itk_image(dataobject, itk_image):
     #------------------------------------------
     import itk
     from . import internal_utils
-    result = itk.PyBuffer[
-        itk_output_image_type].GetArrayFromImage(itk_image)
+    result = itk.GetArrayFromImage(itk_image)
     result = result.copy()
     internal_utils.set_array(dataobject, result, isFortran=False)
 
@@ -489,8 +489,7 @@ def connected_components(dataset, background_value=0, progress_callback=None):
             return
 
         itk_image_data = relabel_filter.GetOutput()
-        label_buffer = itk.PyBuffer[
-            itk_image_type].GetArrayFromImage(itk_image_data)
+        label_buffer = itk.GetArrayFromImage(itk_image_data)
 
         # Flip the labels so that the largest component has the highest label
         # value, e.g., the labeling ordering by size goes from [1, 2, ... N] to
@@ -562,15 +561,12 @@ def dataset_to_itk_image(dataset):
     return itk_image
 
 
-def set_itk_image_on_dataset(itk_image, dataset, dtype=None):
+def set_itk_image_on_dataset(itk_image, dataset, **kwargs):
     # Write the itk image data to the dataset
 
     import itk
 
-    if dtype is None:
-        array = itk.GetArrayFromImage(itk_image)
-    else:
-        array = itk.PyBuffer[dtype].GetArrayFromImage(itk_image)
+    array = itk.GetArrayFromImage(itk_image)
 
     # Transpose the data to Fortran indexing
     dataset.active_scalars = array.transpose([2, 1, 0])

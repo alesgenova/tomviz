@@ -3,34 +3,20 @@
 
 #include "ReconstructionReaction.h"
 
-#include "ActiveObjects.h"
-#include "DataSource.h"
-#include "Pipeline.h"
-
-#include <vtkSMSourceProxy.h>
-#include <vtkTrivialProducer.h>
-
-#include "ReconstructionOperator.h"
-
-#include <QDebug>
-#include <QSharedPointer>
+#include "TransformUtils.h"
+#include "pipeline/transforms/ReconstructionTransform.h"
 
 namespace tomviz {
 
 ReconstructionReaction::ReconstructionReaction(QAction* parentObject)
   : Reaction(parentObject)
 {
+  setAcceptedInputTypes(pipeline::PortType::TiltSeries);
 }
 
-void ReconstructionReaction::recon(DataSource* input)
+void ReconstructionReaction::recon(DataSource*)
 {
-  input = input ? input : ActiveObjects::instance().activeParentDataSource();
-  if (!input) {
-    qDebug() << "Exiting early - no data :-(";
-    return;
-  }
-
-  Operator* op = new ReconstructionOperator(input);
-  input->addOperator(op);
+  auto* transform = new pipeline::ReconstructionTransform();
+  insertTransformIntoPipeline(transform);
 }
 } // namespace tomviz

@@ -4,24 +4,23 @@
 #include "CentralWidget.h"
 #include "ui_CentralWidget.h"
 
+#include <vtkColorTransferFunction.h>
 #include <vtkImageData.h>
 #include <vtkObjectFactory.h>
-#include <vtkPNGWriter.h>
 #include <vtkPiecewiseFunction.h>
 #include <vtkPointData.h>
 #include <vtkTable.h>
 #include <vtkTransferFunctionBoxItem.h>
-#include <vtkTrivialProducer.h>
-#include <vtkUnsignedShortArray.h>
 #include <vtkVector.h>
 
+#include <pqApplicationCore.h>
 #include <pqSettings.h>
+#include <vtkDataArray.h>
 #include <vtkPVDiscretizableColorTransferFunction.h>
 #include <vtkSMPropertyHelper.h>
 #include <vtkSMRenderViewProxy.h>
 #include <vtkSMViewProxy.h>
 
-#include <QModelIndex>
 #include <QThread>
 #include <QTimer>
 
@@ -30,13 +29,10 @@
 #include "GradientOpacityWidget.h"
 #include "Histogram2DWidget.h"
 #include "HistogramWidget.h"
-#include "DataSource.h"
 #include "HistogramManager.h"
-#include "Module.h"
-#include "ModuleManager.h"
-#include "ModuleSlice.h"
-#include "Pipeline.h"
-#include "Utilities.h"
+
+#include "pipeline/sinks/LegacyModuleSink.h"
+#include "pipeline/data/VolumeData.h"
 
 namespace tomviz {
 
@@ -69,7 +65,7 @@ public:
 
   /**
    * Initializes with a default TFBoxItem, which will be used to hold the
-   * default Module/DataSource transfer functions.
+   * default transfer functions.
    */
   void populate()
   {
@@ -87,7 +83,7 @@ public:
 
   /**
    * Returns the first element of the list which refers to the default
-   * Module/DataSource transfer function box.
+   * transfer function box.
    */
   const ItemBoxPtr& getDefault() { return get(index(0, 0, QModelIndex())); }
 
@@ -151,7 +147,8 @@ CentralWidget::CentralWidget(QWidget* parentObject, Qt::WindowFlags wflags)
 
   m_timer->setInterval(200);
   m_timer->setSingleShot(true);
-  connect(m_timer.data(), &QTimer::timeout, this, &CentralWidget::refreshHistogram);
+  connect(m_timer.data(), &QTimer::timeout, this,
+          &CentralWidget::refreshHistogram);
   layout()->setContentsMargins(0, 0, 0, 0);
   layout()->setSpacing(0);
 
@@ -166,127 +163,10 @@ CentralWidget::~CentralWidget()
   HistogramManager::instance().finalize();
 }
 
-void CentralWidget::setActiveColorMapDataSource(DataSource* source)
-{
-  auto selected = ActiveObjects::instance().selectedDataSource();
-
-  // If we have a data source selected directly ( i.e. the user has clicked on
-  // it ) use that, otherwise use the active transformed data source passed in.
-  if (selected != nullptr) {
-    source = selected;
-    // set the active module to null so we use the color map for the data
-    // source.
-    m_activeModule = nullptr;
-  }
-
-  setColorMapDataSource(source);
-}
-
-void CentralWidget::setActiveModule(Module* module)
-{
-  if (m_activeModule) {
-    m_activeModule->disconnect(this);
-  }
-  m_activeModule = module;
-  if (m_activeModule) {
-    connect(m_activeModule, &Module::colorMapChanged, this,
-            &CentralWidget::onColorMapDataSourceChanged);
-    setColorMapDataSource(module->colorMapDataSource());
-    connect(m_activeModule, &Module::transferModeChanged, this,
-            &CentralWidget::onTransferModeChanged);
-    onTransferModeChanged(static_cast<int>(m_activeModule->getTransferMode()));
-
-  } else {
-    setColorMapDataSource(nullptr);
-  }
-}
-
-void CentralWidget::setActiveOperator(Operator* op)
-{
-  if (op != nullptr) {
-    DataSource* source = op->dataSource();
-    if (op->isNew() && op->isEditing() && source && source->pipeline()) {
-      // If we are editing a new operator, show the most recently
-      // transformed datasource's histogram rather than the parent
-      // datasource's histogram.
-      source = source->pipeline()->transformedDataSource();
-    }
-    m_activeModule = nullptr;
-    setColorMapDataSource(source);
-  }
-}
-
-void CentralWidget::setColorMapDataSource(DataSource* source)
-{
-  if (m_activeColorMapDataSource) {
-    m_activeColorMapDataSource->disconnect(this);
-    m_ui->histogramWidget->disconnect(m_activeColorMapDataSource);
-  }
-  m_activeColorMapDataSource = source;
-
-  if (source) {
-    connect(source, &DataSource::dataChanged, this, &CentralWidget::onColorMapDataSourceChanged);
-  }
-
-  if (!source) {
-    m_ui->histogramWidget->setInputData(nullptr, "", "");
-    m_ui->gradientOpacityWidget->setInputData(nullptr, "", "");
-    m_ui->histogram2DWidget->setTransfer2D(nullptr, nullptr);
-    return;
-  }
-
-  // Get the actual data source, build a histogram out of it.
-  auto image = vtkImageData::SafeDownCast(source->dataObject());
-
-  if (!image || image->GetPointData()->GetScalars() == nullptr) {
-    return;
-  }
-
-  // Get the current color map
-  if (m_activeModule) {
-    m_ui->histogramWidget->setLUTProxy(m_activeModule->colorMap());
-    if (m_activeModule->supportsGradientOpacity()) {
-      m_ui->gradientOpacityWidget->setLUT(m_activeModule->gradientOpacityMap());
-      m_transfer2DModel->getDefault()->SetColorFunction(
-        vtkColorTransferFunction::SafeDownCast(
-          m_activeModule->colorMap()->GetClientSideObject()));
-      m_transfer2DModel->getDefault()->SetOpacityFunction(
-        vtkPiecewiseFunction::SafeDownCast(
-          m_activeModule->opacityMap()->GetClientSideObject()));
-      m_ui->histogram2DWidget->setTransfer2D(
-        m_activeModule->transferFunction2D(),
-        m_activeModule->transferFunction2DBox());
-    }
-  } else {
-    m_ui->histogramWidget->setLUTProxy(source->colorMap());
-    m_ui->gradientOpacityWidget->setLUT(source->gradientOpacityMap());
-
-    m_transfer2DModel->getDefault()->SetColorFunction(
-      vtkColorTransferFunction::SafeDownCast(
-        source->colorMap()->GetClientSideObject()));
-    m_transfer2DModel->getDefault()->SetOpacityFunction(
-      vtkPiecewiseFunction::SafeDownCast(
-        source->opacityMap()->GetClientSideObject()));
-    m_ui->histogram2DWidget->setTransfer2D(source->transferFunction2D(),
-                                           source->transferFunction2DBox());
-  }
-  m_ui->histogram2DWidget->updateTransfer2D();
-
-  vtkSmartPointer<vtkImageData> const imageSP = image;
-  auto histogram = HistogramManager::instance().getHistogram(imageSP);
-  auto histogram2D = HistogramManager::instance().getHistogram2D(imageSP);
-
-  if (histogram) {
-    setHistogramTable(histogram);
-  }
-  if (histogram2D) {
-    m_ui->histogram2DWidget->setHistogram(histogram2D);
-    m_ui->histogram2DWidget->addFunctionItem(m_transfer2DModel->getDefault());
-  }
-}
-
 void CentralWidget::onColorMapUpdated()
 {
+  // HistogramWidget/GradientOpacityWidget already triggered a coalesced
+  // render via pqView::render(). Refresh the histogram to stay in sync.
   onColorMapDataSourceChanged();
 }
 
@@ -304,42 +184,18 @@ void CentralWidget::onColorLegendToggled(bool visibility)
 
 void CentralWidget::setImageViewerMode(bool enabled)
 {
-  // First, reset the state of the slider
+  // Reset the state of the slider
   m_ui->imageViewerSlider->setVisible(false);
   m_ui->imageViewerSlider->disconnect();
   m_ui->imageViewerSlider->setValue(0);
   m_ui->imageViewerSlider->setMaximum(0);
 
   if (!enabled) {
-    // Nothing more to do
     return;
   }
 
-  // Find the first slice module and connect to it
-  auto* ds = ActiveObjects::instance().activeDataSource();
-  auto* view =
-    vtkSMRenderViewProxy::SafeDownCast(ActiveObjects::instance().activeView());
-
-  auto& moduleManager = ModuleManager::instance();
-  auto sliceModules = moduleManager.findModules<ModuleSlice*>(ds, view);
-  auto* sliceModule = !sliceModules.empty() ? sliceModules[0] : nullptr;
-
-  if (!sliceModule) {
-    qCritical() << "Error: in CentralWidget::setImageViewerMode: "
-                << "no slice module found";
-    return;
-  }
-
-  // Connect the two sliders together
-  m_ui->imageViewerSlider->setMaximum(sliceModule->maxSlice());
-  connect(m_ui->imageViewerSlider, &IntSliderWidget::valueEdited, sliceModule,
-          QOverload<int>::of(&ModuleSlice::onSliceChanged));
-  connect(sliceModule, &ModuleSlice::sliceChanged, m_ui->imageViewerSlider,
-          &IntSliderWidget::setValue);
-  connect(sliceModule, &QObject::destroyed, m_ui->imageViewerSlider,
-          &IntSliderWidget::hide);
-
-  m_ui->imageViewerSlider->setVisible(true);
+  // TODO: migrate to new pipeline — find a SliceSink from the active node
+  // and connect its slice index to the slider
 }
 
 void CentralWidget::onColorMapDataSourceChanged()
@@ -352,14 +208,30 @@ void CentralWidget::onColorMapDataSourceChanged()
 
 void CentralWidget::refreshHistogram()
 {
-  setColorMapDataSource(m_activeColorMapDataSource);
+  if (m_activeSink) {
+    setActiveSinkNode(m_activeSink);
+    return;
+  }
+  if (m_activeVolumeData) {
+    setActiveVolumeData(m_activeVolumeData);
+    return;
+  }
 }
 
 void CentralWidget::histogramReady(vtkSmartPointer<vtkImageData> input,
                                    vtkSmartPointer<vtkTable> output)
 {
   vtkImageData* inputIm = getInputImage(input);
-  if (!inputIm || !output) {
+  if (!inputIm) {
+    // The image pointer doesn't match the current active data.
+    // The pipeline may have replaced the image. Trigger a refresh
+    // so we request a histogram for the current image.
+    if (m_activeVolumeData && m_activeVolumeData->isValid() && input) {
+      refreshHistogram();
+    }
+    return;
+  }
+  if (!output) {
     return;
   }
 
@@ -385,22 +257,13 @@ vtkImageData* CentralWidget::getInputImage(vtkSmartPointer<vtkImageData> input)
     return nullptr;
   }
 
-  // If we no longer have an active datasource, ignore showing the histogram
-  // since the data has been deleted
-  if (!m_activeColorMapDataSource) {
-    return nullptr;
+  if (m_activeVolumeData && m_activeVolumeData->isValid()) {
+    if (m_activeVolumeData->imageData() == input.Get()) {
+      return input;
+    }
   }
 
-  auto image =
-    vtkImageData::SafeDownCast(m_activeColorMapDataSource->dataObject());
-
-  // The current dataset has changed since the histogram was requested,
-  // ignore this histogram and wait for the next one queued...
-  if (image != input) {
-    return nullptr;
-  }
-
-  return image;
+  return nullptr;
 }
 
 void CentralWidget::setHistogramTable(vtkTable* table)
@@ -415,26 +278,90 @@ void CentralWidget::setHistogramTable(vtkTable* table)
                                             "image_pops");
 }
 
-void CentralWidget::onTransferModeChanged(const int mode)
+void CentralWidget::setActiveSinkNode(pipeline::LegacyModuleSink* sink)
 {
-  if (!m_activeModule) {
+  // Disconnect previous sink
+  if (m_activeSink) {
+    disconnect(m_activeSink, &pipeline::LegacyModuleSink::colorMapChanged,
+               this, nullptr);
+  }
+
+  m_activeSink = sink;
+
+  if (!sink) {
+    m_activeVolumeData.reset();
+    m_ui->histogramWidget->setVolumeData(nullptr);
+    m_ui->histogramWidget->setInputData(nullptr, "", "");
+    m_ui->gradientOpacityWidget->setInputData(nullptr, "", "");
     return;
   }
 
-  int index = 0;
-  switch (static_cast<Module::TransferMode>(mode)) {
-    case Module::SCALAR:
-      m_ui->gradientOpacityWidget->hide();
-      break;
-    case Module::GRADIENT_1D:
-      m_ui->gradientOpacityWidget->show();
-      break;
-    case Module::GRADIENT_2D:
-      index = 1;
-      break;
+  // Cache the VolumeData for histogram computation
+  auto vol = sink->volumeData();
+  m_activeVolumeData = vol;
+  m_ui->histogramWidget->setVolumeData(vol);
+
+  // Set the color map proxy on the histogram widget
+  auto* cmap = sink->colorMap();
+  if (cmap) {
+    m_ui->histogramWidget->setLUTProxy(cmap);
+  }
+  auto* gradOp = sink->gradientOpacity();
+  if (gradOp) {
+    m_ui->gradientOpacityWidget->setLUT(gradOp);
   }
 
-  m_ui->swTransferMode->setCurrentIndex(index);
+  // Request histogram from the VolumeData's image
+  if (vol && vol->isValid()) {
+    vtkSmartPointer<vtkImageData> image = vol->imageData();
+    auto histogram = HistogramManager::instance().getHistogram(image);
+    if (histogram) {
+      setHistogramTable(histogram);
+    }
+    // If not cached, HistogramManager will emit histogramReady later
+  }
+
+  // Re-run on color map changes
+  connect(sink, &pipeline::LegacyModuleSink::colorMapChanged, this,
+          [this, sink]() { setActiveSinkNode(sink); });
+}
+
+void CentralWidget::setActiveVolumeData(pipeline::VolumeDataPtr volumeData)
+{
+  // Disconnect previous sink
+  if (m_activeSink) {
+    disconnect(m_activeSink, &pipeline::LegacyModuleSink::colorMapChanged,
+               this, nullptr);
+    m_activeSink = nullptr;
+  }
+
+  m_activeVolumeData = volumeData;
+  m_ui->histogramWidget->setVolumeData(volumeData);
+
+  if (!volumeData || !volumeData->isValid()) {
+    m_ui->histogramWidget->setInputData(nullptr, "", "");
+    m_ui->gradientOpacityWidget->setInputData(nullptr, "", "");
+    return;
+  }
+
+  // Only set up color map editing if the VolumeData already has a color map
+  // (e.g., from a sink). Don't lazily create one for a bare output port —
+  // the SM proxy created by initColorMap() may not be fully initialized.
+  if (volumeData->hasColorMap()) {
+    auto* cmap = volumeData->colorMap();
+    if (cmap) {
+      m_ui->histogramWidget->setLUTProxy(cmap);
+    }
+    m_ui->gradientOpacityWidget->setLUT(volumeData->gradientOpacity());
+  }
+
+  // Request histogram
+  vtkSmartPointer<vtkImageData> image = volumeData->imageData();
+  auto histogram = HistogramManager::instance().getHistogram(image);
+  if (histogram) {
+    setHistogramTable(histogram);
+  }
+  // If not cached, HistogramManager will emit histogramReady later
 }
 
 } // end of namespace tomviz

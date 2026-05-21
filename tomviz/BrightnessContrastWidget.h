@@ -7,11 +7,16 @@
 #include <QScopedPointer>
 #include <QWidget>
 
+#include <memory>
+
 class vtkDiscretizableColorTransferFunction;
 
 namespace tomviz {
 
-class DataSource;
+namespace pipeline {
+class VolumeData;
+using VolumeDataPtr = std::shared_ptr<VolumeData>;
+} // namespace pipeline
 
 class BrightnessContrastWidget : public QWidget
 {
@@ -24,12 +29,12 @@ class BrightnessContrastWidget : public QWidget
   typedef QWidget Superclass;
 
 public:
-  BrightnessContrastWidget(DataSource* ds,
+  BrightnessContrastWidget(pipeline::VolumeDataPtr volumeData,
                            vtkDiscretizableColorTransferFunction* lut,
                            QWidget* parent = nullptr);
   virtual ~BrightnessContrastWidget();
 
-  void setDataSource(DataSource* ds);
+  void setVolumeData(pipeline::VolumeDataPtr volumeData);
   void setLut(vtkDiscretizableColorTransferFunction* lut);
 
   void updateGui();

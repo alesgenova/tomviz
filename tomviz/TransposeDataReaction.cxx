@@ -3,13 +3,8 @@
 
 #include "TransposeDataReaction.h"
 
-#include <QAction>
-#include <QMainWindow>
-
-#include "ActiveObjects.h"
-#include "TransposeDataOperator.h"
-#include "DataSource.h"
-#include "EditOperatorDialog.h"
+#include "TransformUtils.h"
+#include "pipeline/transforms/TransposeDataTransform.h"
 
 namespace tomviz {
 
@@ -19,19 +14,9 @@ TransposeDataReaction::TransposeDataReaction(QAction* parentObject,
 {
 }
 
-void TransposeDataReaction::transposeData(DataSource* source)
+void TransposeDataReaction::transposeData(DataSource*)
 {
-  source = source ? source : ActiveObjects::instance().activeParentDataSource();
-  if (!source) {
-    return;
-  }
-
-  Operator* Op = new TransposeDataOperator();
-
-  EditOperatorDialog* dialog =
-    new EditOperatorDialog(Op, source, true, m_mainWindow);
-  dialog->setAttribute(Qt::WA_DeleteOnClose);
-  dialog->show();
-  connect(Op, &QObject::destroyed, dialog, &QDialog::reject);
+  auto* transform = new pipeline::TransposeDataTransform();
+  insertTransformIntoPipeline(transform);
 }
 } // namespace tomviz

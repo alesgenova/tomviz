@@ -7,10 +7,16 @@
 #include "vtkImageData.h"
 #include "vtkImageResize.h"
 #include "vtkNew.h"
+#include "vtkSmartPointer.h"
 
 #include "ConformVolumeDialog.h"
-#include "DataSource.h"
+#include "legacy/DataSource.h"
 #include "LoadDataReaction.h"
+
+#include "pipeline/PortData.h"
+#include "pipeline/PortType.h"
+#include "pipeline/SourceNode.h"
+#include "pipeline/data/VolumeData.h"
 
 namespace tomviz {
 
@@ -32,9 +38,19 @@ void ConformVolumeReaction::onTriggered()
 
   m_conformingVolume = dialog.selectedVolume();
 
-  auto newSource = createConformedVolume();
+  auto* newSource = createConformedVolume();
   if (newSource) {
-    LoadDataReaction::dataSourceAdded(newSource);
+    auto* source = new pipeline::SourceNode();
+    source->setLabel("Conformed Volume");
+    source->addOutput("volume", pipeline::PortType::ImageData);
+    vtkSmartPointer<vtkImageData> img = newSource->imageData();
+    auto vol = std::make_shared<pipeline::VolumeData>(img);
+    vol->setLabel("Conformed Volume");
+    source->setOutputData(
+      "volume",
+      pipeline::PortData(vol, pipeline::PortType::ImageData));
+    LoadDataReaction::sourceNodeAdded(source);
+    delete newSource; // Clean up the temporary DataSource
   }
 }
 
@@ -110,6 +126,7 @@ DataSource* ConformVolumeReaction::createConformedVolume()
     return nullptr;
   }
 
+  // TODO: Fully migrate ConformVolumeReaction to use SourceNode
   auto* newSource = new DataSource(output);
   newSource->setFileName("Conformed Volume");
   // Make the display position match as well

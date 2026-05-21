@@ -4,28 +4,28 @@
 #ifndef tomvizRotateAlignWidget_h
 #define tomvizRotateAlignWidget_h
 
-#include "CustomPythonOperatorWidget.h"
+#include "CustomPythonNodeWidget.h"
+#include "PortData.h"
 
 #include "vtkSmartPointer.h"
 
+#include <QMap>
 #include <QScopedPointer>
+#include <QString>
 
 class vtkImageData;
+class vtkSMProxy;
 
 namespace tomviz {
-class Operator;
 
-class RotateAlignWidget : public CustomPythonOperatorWidget
+class RotateAlignWidget : public pipeline::CustomPythonNodeWidget
 {
   Q_OBJECT
 
 public:
-  RotateAlignWidget(Operator* op, vtkSmartPointer<vtkImageData> image,
-                    QWidget* parent = NULL);
+  RotateAlignWidget(const QMap<QString, pipeline::PortData>& inputs,
+                    QWidget* parent = nullptr);
   ~RotateAlignWidget();
-
-  static CustomPythonOperatorWidget* New(QWidget* p, Operator* op,
-                                         vtkSmartPointer<vtkImageData> data);
 
   void getValues(QMap<QString, QVariant>& map) override;
   void setValues(const QMap<QString, QVariant>& map) override;
@@ -58,6 +58,7 @@ protected slots:
   void changeColorMap2() { this->changeColorMap(2); }
 
 private:
+  void initUI(vtkSMProxy* sourceColorMap);
   void onReconSliceChanged(int idx, int val);
   void showChangeColorMapDialog(int reconSlice);
   void changeColorMap(int reconSlice);

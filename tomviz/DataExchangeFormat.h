@@ -8,6 +8,8 @@
 
 #include <QVariantMap>
 
+#include "HDF5ReadResult.h"
+
 class vtkImageData;
 
 namespace tomviz {
@@ -24,6 +26,9 @@ public:
   // theta angles, and it will swap x and z for tilt series.
   bool read(const std::string& fileName, DataSource* source,
             const QVariantMap& options = QVariantMap());
+  // Read everything into an HDF5ReadResult (no DataSource needed)
+  HDF5ReadResult readAll(const std::string& fileName,
+                         const QVariantMap& options = QVariantMap());
   // A data source is required for writing
   bool write(const std::string& fileName, DataSource* source);
 

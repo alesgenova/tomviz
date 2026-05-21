@@ -48,8 +48,6 @@ def opening_by_reconstruction(operator, step_pct, input_image,
 def threshold(operator, step_pct, input_image):
     import itk
     from tomviz import itkutils
-    import itkExtras
-    import itkTypes
 
     otsu_filter = \
         itk.OtsuMultipleThresholdsImageFilter.New(Input=input_image)
@@ -64,10 +62,12 @@ def threshold(operator, step_pct, input_image):
     except RuntimeError:
         return
 
+    thresholded = otsu_filter.GetOutput()
+
     # Cast threshold output to an integral type if needed.
     input_image_type = type(input_image)
-    voxel_type = itkExtras.template(input_image_type)[1][0]
-    if voxel_type is itkTypes.F or voxel_type is itkTypes.D:
+    voxel_type = itk.template(input_image_type)[1][0]
+    if voxel_type is itk.F or voxel_type is itk.D:
         operator.progress.message = "Casting output to integral type"
 
         # Unsigned char supports 256 labels, or 255 threshold levels.
@@ -88,7 +88,6 @@ def threshold(operator, step_pct, input_image):
 
         thresholded = caster.GetOutput()
 
-    thresholded = otsu_filter.GetOutput()
     return thresholded
 
 

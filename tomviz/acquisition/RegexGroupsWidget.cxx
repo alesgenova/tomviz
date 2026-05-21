@@ -7,7 +7,7 @@
 
 #include "ActiveObjects.h"
 #include "MainWindow.h"
-#include "ModuleManager.h"
+#include "legacy/modules/ModuleManager.h"
 #include "RegexGroupDialog.h"
 
 #include <pqApplicationCore.h>

@@ -4,9 +4,9 @@
 #include "DuplicateModuleReaction.h"
 
 #include "ActiveObjects.h"
-#include "Module.h"
-#include "ModuleFactory.h"
-#include "ModuleManager.h"
+#include "legacy/modules/Module.h"
+#include "legacy/modules/ModuleFactory.h"
+#include "legacy/modules/ModuleManager.h"
 
 #include <QJsonObject>
 
@@ -15,20 +15,26 @@ namespace tomviz {
 DuplicateModuleReaction::DuplicateModuleReaction(QAction* action)
   : pqReaction(action)
 {
-  connect(&ActiveObjects::instance(), &ActiveObjects::moduleChanged, this,
-          &DuplicateModuleReaction::updateEnableState);
-  updateEnableState();
+  // TODO: migrate to new pipeline
+  // was: connected to ActiveObjects::moduleChanged to update enable state
+  parentAction()->setEnabled(false);
 }
 
 void DuplicateModuleReaction::updateEnableState()
 {
-  parentAction()->setEnabled(ActiveObjects::instance().activeModule() !=
-                             nullptr);
+  // TODO: migrate to new pipeline
+  // was: enabled when ActiveObjects::instance().activeModule() != nullptr
+  parentAction()->setEnabled(false);
 }
 
 void DuplicateModuleReaction::onTriggered()
 {
-  auto module = ActiveObjects::instance().activeModule();
+  // TODO: migrate to new pipeline
+  // was: auto module = ActiveObjects::instance().activeModule();
+  Module* module = nullptr;
+  if (!module) {
+    return;
+  }
   auto dataSource = module->dataSource();
   auto operatorResult = module->operatorResult();
   auto moleculeSource = module->moleculeSource();

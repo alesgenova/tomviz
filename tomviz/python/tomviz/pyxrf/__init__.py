@@ -1,9 +1,9 @@
 import os
 
 try:
-    from .load_output import list_elements, extract_elements  # noqa
     from .ic_names import ic_names  # noqa
-    from .sids import filter_sids
+    from .sids import filter_sids  # noqa
+    from .scan_metadata import read_scan_metadata  # noqa
     requirements_installed = True
 except ImportError:
     requirements_installed = False
@@ -12,7 +12,6 @@ except ImportError:
     import_error_exc = traceback.format_exc()
 
     if 'TOMVIZ_REQUIRE_PYXRF' in os.environ:
-        # Raise an exception so we can be notified if PyXRF import fails
         raise
 
 

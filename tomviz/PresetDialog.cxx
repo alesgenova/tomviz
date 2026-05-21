@@ -40,6 +40,8 @@ PresetDialog::PresetDialog(QWidget* parent)
           &PresetDialog::warning);
   connect(m_ui->createSolidColormap, &QPushButton::clicked, this,
           &PresetDialog::createSolidColormap);
+  connect(m_ui->createSegmentationColormap, &QPushButton::clicked, this,
+          &PresetDialog::createSegmentationColormapRequested);
   connect(this, &PresetDialog::resetToDefaults, m_model,
 	        &PresetModel::resetToDefaults);
 }

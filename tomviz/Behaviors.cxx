@@ -5,11 +5,13 @@
 
 #include "ActiveObjects.h"
 #include "AddRenderViewContextMenuBehavior.h"
-#include "ShiftRotationCenterWidget.h"
 #include "ManualManipulationWidget.h"
-#include "MoveActiveObject.h"
-#include "OperatorPython.h"
+#include "PtychoWidget.h"
+#include "PyXRFWidget.h"
+#include "SelectCylinderWidget.h"
+#include "ShiftRotationCenterWidget.h"
 #include "RotateAlignWidget.h"
+#include "CustomNodeWidgetRegistry.h"
 #include "TimeSeriesLabel.h"
 #include "ViewFrameActions.h"
 
@@ -88,7 +90,6 @@ Behaviors::Behaviors(QMainWindow* mainWindow) : QObject(mainWindow)
 
   new tomviz::AddRenderViewContextMenuBehavior(this);
 
-  m_moveActiveBehavior.reset(new tomviz::MoveActiveObject(this));
   m_timeSeriesLabel.reset(new tomviz::TimeSeriesLabel(this));
 
   // This will trigger the logic to setup reader/writer factories, etc.
@@ -102,12 +103,20 @@ Behaviors::Behaviors(QMainWindow* mainWindow) : QObject(mainWindow)
 
 void Behaviors::registerCustomOperatorUIs()
 {
-  OperatorPython::registerCustomWidget("ShiftRotationCenterWidget", true,
-                                       ShiftRotationCenterWidget::New);
-  OperatorPython::registerCustomWidget("RotationAlignWidget", true,
-                                       RotateAlignWidget::New);
-  OperatorPython::registerCustomWidget("ManualManipulationWidget", true,
-                                       ManualManipulationWidget::New);
+  using namespace pipeline;
+
+  registerCustomNodeWidget<RotateAlignWidget>(
+    "RotationAlignWidget", /*needsData=*/true);
+  registerCustomNodeWidget<ShiftRotationCenterWidget>(
+    "ShiftRotationCenterWidget", /*needsData=*/true);
+  registerCustomNodeWidget<ManualManipulationWidget>(
+    "ManualManipulationWidget", /*needsData=*/true);
+  registerCustomNodeWidget<SelectCylinderWidget>(
+    "CylindricalCropWidget", /*needsData=*/true);
+  registerCustomNodeWidget<PyXRFWidget>(
+    "PyXRFWidget", /*needsData=*/false);
+  registerCustomNodeWidget<PtychoWidget>(
+    "PtychoWidget", /*needsData=*/false);
 }
 
 } // end of namespace tomviz

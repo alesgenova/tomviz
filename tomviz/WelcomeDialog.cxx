@@ -6,7 +6,7 @@
 
 #include "ActiveObjects.h"
 #include "MainWindow.h"
-#include "ModuleManager.h"
+#include "legacy/modules/ModuleManager.h"
 
 #include <QCheckBox>
 #include <QPushButton>
@@ -33,15 +33,8 @@ void WelcomeDialog::onLoadSampleDataClicked()
 {
   auto mw = qobject_cast<MainWindow*>(this->parent());
   mw->openRecon();
-  auto& mm = ModuleManager::instance();
-  auto& ao = ActiveObjects::instance();
-  // Remove the orthogonal slice that is automatically created
-  mm.removeModule(ao.activeModule());
-  // Add a volume module
-  if (auto module = mm.createAndAddModule("Volume", ao.activeDataSource(),
-                                          ao.activeView())) {
-    ao.setActiveModule(module);
-  }
+  // TODO: migrate to new pipeline — remove auto-created slice and add
+  // volume sink via the new pipeline API
   hide();
 }
 

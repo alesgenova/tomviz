@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 2,
+  "name": "RandomParticles",
+  "label": "Random Particles",
+  "description": "Generate many random 3D \"particles\" using the Fourier Noise method. You can increase the \"Internal Complexity\" of particles and their average \"Particle Size\". You can also specify the sparsity (percentage of non-zero voxels) of the generated dataset. Note: 512x512x512 may take a couple minutes to run.",
+  "outputs": [
+    {"name": "volume", "type": "ImageData", "persistent": true}
+  ],
+  "parameters": [
+    {
+      "type": "xyz_header"
+    },
+    {
+      "name": "shape",
+      "label": "Shape",
+      "type": "int",
+      "default": [128, 128, 128],
+      "minimum": [1, 1, 1],
+      "maximum": [512, 512, 512]
+    },
+    {
+      "name": "p_in",
+      "label": "Internal Complexity",
+      "type": "double",
+      "default": 30.0,
+      "minimum": 1.0,
+      "maximum": 100.0,
+      "step": 5.0
+    },
+    {
+      "name": "p_s",
+      "label": "Particle Size",
+      "type": "double",
+      "default": 60.0,
+      "minimum": 1.0,
+      "maximum": 100.0,
+      "step": 5.0
+    },
+    {
+      "name": "sparsity",
+      "label": "Sparsity (fraction of non-zero voxels)",
+      "type": "double",
+      "default": 0.2,
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "step": 0.05
+    }
+  ]
+}

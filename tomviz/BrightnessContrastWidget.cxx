@@ -16,7 +16,7 @@
 #include <vtkPiecewiseFunction.h>
 #include <vtkSmartPointer.h>
 
-#include "DataSource.h"
+#include "pipeline/data/VolumeData.h"
 #include "Utilities.h"
 
 static const double PI = vtkMath::Pi();
@@ -26,8 +26,9 @@ namespace tomviz {
 class BrightnessContrastWidget::Internals
 {
 public:
-  Internals(DataSource* ds, vtkDiscretizableColorTransferFunction* lut)
-    : m_ds(ds), m_lut(lut)
+  Internals(pipeline::VolumeDataPtr volumeData,
+            vtkDiscretizableColorTransferFunction* lut)
+    : m_volumeData(std::move(volumeData)), m_lut(lut)
   {
     m_opacity = m_lut->GetScalarOpacityFunction();
     resetOriginalData();
@@ -39,7 +40,7 @@ public:
 
   ~Internals() { disconnectDataModifiedCallback(); }
 
-  QPointer<DataSource> m_ds;
+  pipeline::VolumeDataPtr m_volumeData;
   vtkSmartPointer<vtkDiscretizableColorTransferFunction> m_lut;
   vtkSmartPointer<vtkPiecewiseFunction> m_opacity;
   vtkNew<vtkDiscretizableColorTransferFunction> m_uncroppedLut;
@@ -83,14 +84,14 @@ public:
 
   void updateRanges()
   {
-    if (!m_ds) {
+    if (!m_volumeData || !m_volumeData->isValid()) {
       return;
     }
 
     auto blockers = blockSignals();
 
-    double range[2];
-    m_ds->getRange(range);
+    auto sr = m_volumeData->scalarRange();
+    double range[2] = { sr[0], sr[1] };
 
     // Offset some of the extrema to avoid NaN values
     double offset = (range[1] - range[0]) / 1000;
@@ -112,13 +113,13 @@ public:
                      [this](double v) { setContrast(v); });
   }
 
-  void setDataSource(DataSource* ds)
+  void setVolumeData(pipeline::VolumeDataPtr volumeData)
   {
-    if (m_ds == ds) {
+    if (m_volumeData == volumeData) {
       return;
     }
 
-    m_ds = ds;
+    m_volumeData = std::move(volumeData);
     updateRanges();
     updateGui();
   }
@@ -169,7 +170,7 @@ public:
 
   void updateGui()
   {
-    if (!m_ds) {
+    if (!m_volumeData || !m_volumeData->isValid()) {
       return;
     }
 
@@ -214,12 +215,13 @@ public:
     double max = computeMaximum();
     double mean = (max + min) / 2;
 
-    if (!m_ds || min == DBL_MAX || max == -DBL_MAX) {
+    if (!m_volumeData || !m_volumeData->isValid() ||
+        min == DBL_MAX || max == -DBL_MAX) {
       return -1;
     }
 
-    double range[2];
-    m_ds->getRange(range);
+    auto sr = m_volumeData->scalarRange();
+    double range[2] = { sr[0], sr[1] };
     return rescale(mean, range[0], range[1], 100, 0);
   }
 
@@ -229,12 +231,13 @@ public:
     double min = computeMinimum();
     double max = computeMaximum();
 
-    if (!m_ds || min == DBL_MAX || max == -DBL_MAX) {
+    if (!m_volumeData || !m_volumeData->isValid() ||
+        min == DBL_MAX || max == -DBL_MAX) {
       return -1;
     }
 
-    double range[2];
-    m_ds->getRange(range);
+    auto sr = m_volumeData->scalarRange();
+    double range[2] = { sr[0], sr[1] };
 
     double width = max - min;
     double dataWidth = range[1] - range[0];
@@ -265,12 +268,12 @@ public:
 
   void setContrast(double v)
   {
-    if (!m_ds) {
+    if (!m_volumeData || !m_volumeData->isValid()) {
       return;
     }
 
-    double range[2];
-    m_ds->getRange(range);
+    auto sr = m_volumeData->scalarRange();
+    double range[2] = { sr[0], sr[1] };
 
     double dataWidth = range[1] - range[0];
 
@@ -291,12 +294,12 @@ public:
 
   void setBrightness(double v)
   {
-    if (!m_ds) {
+    if (!m_volumeData || !m_volumeData->isValid()) {
       return;
     }
 
-    double range[2];
-    m_ds->getRange(range);
+    auto sr = m_volumeData->scalarRange();
+    double range[2] = { sr[0], sr[1] };
 
     double previousBrightness = computeBrightness();
     double previousMean =
@@ -315,7 +318,6 @@ public:
   void rescaleNodes(double newMin, double newMax)
   {
     tomviz::rescaleNodes(m_uncroppedLut, newMin, newMax);
-    tomviz::rescaleNodes(m_uncroppedOpacity, newMin, newMax);
     pushChanges();
     updateGui();
   }
@@ -323,18 +325,21 @@ public:
   void pushChanges()
   {
     m_pushingChanges = true;
-    if (!m_ds) {
+    if (!m_volumeData || !m_volumeData->isValid()) {
       m_pushingChanges = false;
       return;
     }
 
+    auto sr = m_volumeData->scalarRange();
+    double range[2] = { sr[0], sr[1] };
+
     m_lut->DeepCopy(m_uncroppedLut);
-    addPlaceholderNodes(m_lut, m_ds);
-    removePointsOutOfRange(m_lut, m_ds);
+    addPlaceholderNodes(m_lut, range);
+    removePointsOutOfRange(m_lut, range);
 
     m_opacity->DeepCopy(m_uncroppedOpacity);
-    addPlaceholderNodes(m_opacity, m_ds);
-    removePointsOutOfRange(m_opacity, m_ds);
+    addPlaceholderNodes(m_opacity, range);
+    removePointsOutOfRange(m_opacity, range);
 
     m_pushingChanges = false;
   }
@@ -376,8 +381,11 @@ public:
 };
 
 BrightnessContrastWidget::BrightnessContrastWidget(
-  DataSource* ds, vtkDiscretizableColorTransferFunction* lut, QWidget* p)
-  : Superclass(p), m_internals(new BrightnessContrastWidget::Internals(ds, lut))
+  pipeline::VolumeDataPtr volumeData,
+  vtkDiscretizableColorTransferFunction* lut, QWidget* p)
+  : Superclass(p),
+    m_internals(
+      new BrightnessContrastWidget::Internals(std::move(volumeData), lut))
 {
   auto& ui = m_internals->ui;
   ui.setupUi(this);
@@ -399,9 +407,9 @@ BrightnessContrastWidget::BrightnessContrastWidget(
 
 BrightnessContrastWidget::~BrightnessContrastWidget() = default;
 
-void BrightnessContrastWidget::setDataSource(DataSource* ds)
+void BrightnessContrastWidget::setVolumeData(pipeline::VolumeDataPtr volumeData)
 {
-  m_internals->setDataSource(ds);
+  m_internals->setVolumeData(std::move(volumeData));
 }
 
 void BrightnessContrastWidget::setLut(

@@ -4,10 +4,14 @@
 #include "DataBrokerLoadReaction.h"
 #include "DataBrokerLoadDialog.h"
 
-#include "DataSource.h"
 #include "GenericHDF5Format.h"
 #include "LoadDataReaction.h"
 #include "Utilities.h"
+
+#include "pipeline/PortData.h"
+#include "pipeline/PortType.h"
+#include "pipeline/SourceNode.h"
+#include "pipeline/data/VolumeData.h"
 
 #include <vtkImageData.h>
 
@@ -43,18 +47,29 @@ void DataBrokerLoadReaction::loadData()
     connect(call, &LoadDataCall::complete, dataBroker,
             [dataBroker, catalog, runUid, table,
              variable](vtkSmartPointer<vtkImageData> imageData) {
-              // Relabel axes first, short-term workaround reorder to C (again).
+              // Relabel axes first, short-term workaround reorder to C
+              // (again).
               GenericHDF5Format::reorderData(imageData,
                                              ReorderMode::FortranToC);
               relabelXAndZAxes(imageData);
-              auto dataSource =
-                new DataSource(imageData, DataSource::TiltSeries);
-              dataSource->setLabel(QString("db:///%1/%2/%3/%4")
-                                     .arg(catalog)
-                                     .arg(runUid)
-                                     .arg(table)
-                                     .arg(variable));
-              LoadDataReaction::dataSourceAdded(dataSource, true, false);
+
+              auto* source = new pipeline::SourceNode();
+              auto label = QString("db:///%1/%2/%3/%4")
+                             .arg(catalog)
+                             .arg(runUid)
+                             .arg(table)
+                             .arg(variable);
+              source->setLabel(label);
+              source->addOutput("volume", pipeline::PortType::ImageData);
+              auto volumeData =
+                std::make_shared<pipeline::VolumeData>(imageData);
+              volumeData->setLabel(label);
+              source->setOutputData(
+                "volume",
+                pipeline::PortData(volumeData, pipeline::PortType::ImageData));
+              source->setProperty("dataType", "tiltSeries");
+
+              LoadDataReaction::sourceNodeAdded(source, true, false);
               dataBroker->deleteLater();
               tomviz::mainWidget()->unsetCursor();
             });

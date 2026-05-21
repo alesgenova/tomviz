@@ -3,13 +3,8 @@
 
 #include "CropReaction.h"
 
-#include <QAction>
-#include <QMainWindow>
-
-#include "ActiveObjects.h"
-#include "CropOperator.h"
-#include "DataSource.h"
-#include "EditOperatorDialog.h"
+#include "TransformUtils.h"
+#include "pipeline/transforms/CropTransform.h"
 
 namespace tomviz {
 
@@ -18,19 +13,9 @@ CropReaction::CropReaction(QAction* parentObject, QMainWindow* mw)
 {
 }
 
-void CropReaction::crop(DataSource* source)
+void CropReaction::crop(DataSource*)
 {
-  source = source ? source : ActiveObjects::instance().activeParentDataSource();
-  if (!source) {
-    return;
-  }
-
-  Operator* Op = new CropOperator();
-
-  EditOperatorDialog* dialog =
-    new EditOperatorDialog(Op, source, true, m_mainWindow);
-  dialog->setAttribute(Qt::WA_DeleteOnClose);
-  dialog->show();
-  connect(Op, &QObject::destroyed, dialog, &QDialog::reject);
+  auto* transform = new pipeline::CropTransform();
+  insertTransformIntoPipeline(transform);
 }
 } // namespace tomviz

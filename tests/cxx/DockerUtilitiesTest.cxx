@@ -8,7 +8,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 
-#include "DockerUtilities.h"
+#include "legacy/DockerUtilities.h"
 
 using namespace tomviz;
 

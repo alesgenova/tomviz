@@ -53,6 +53,7 @@ vtkChartHistogram::vtkChartHistogram()
   this->SetRenderEmpty(true);
   this->SetAutoAxes(false);
   this->ZoomWithMouseWheelOff();
+  this->SetActionToButton(vtkChart::PAN, -1);
   this->GetAxis(vtkAxis::LEFT)->SetTitle("");
   this->GetAxis(vtkAxis::BOTTOM)->SetTitle("");
   this->GetAxis(vtkAxis::BOTTOM)->SetBehavior(vtkAxis::FIXED);

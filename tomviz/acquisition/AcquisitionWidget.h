@@ -17,7 +17,6 @@ class vtkImageSliceMapper;
 class vtkInteractorStyleRubberBand2D;
 class vtkInteractorStyleRubberBandZoom;
 class vtkRenderer;
-class vtkScalarsToColors;
 
 namespace Ui {
 class AcquisitionWidget;
@@ -67,7 +66,6 @@ private:
   vtkSmartPointer<vtkImageData> m_imageData;
   vtkNew<vtkImageSlice> m_imageSlice;
   vtkNew<vtkImageSliceMapper> m_imageSliceMapper;
-  vtkSmartPointer<vtkScalarsToColors> m_lut;
 
   double m_tiltAngle = 0.0;
   QString m_units = "unknown";

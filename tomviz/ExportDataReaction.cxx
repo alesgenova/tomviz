@@ -4,10 +4,10 @@
 #include "ExportDataReaction.h"
 
 #include "ActiveObjects.h"
-#include "ConvertToFloatOperator.h"
+#include <vtkFloatArray.h>
 #include "DataExchangeFormat.h"
 #include "EmdFormat.h"
-#include "Module.h"
+#include "legacy/modules/Module.h"
 #include "Utilities.h"
 
 #include <pqActiveObjects.h>
@@ -43,18 +43,21 @@ namespace tomviz {
 ExportDataReaction::ExportDataReaction(QAction* parentAction, Module* module)
   : pqReaction(parentAction), m_module(module)
 {
-  connect(&ActiveObjects::instance(), &ActiveObjects::moduleChanged, this,
+  // TODO: migrate to new pipeline
+  // Old code connected to ActiveObjects::moduleChanged
+  connect(&ActiveObjects::instance(), &ActiveObjects::activeNodeChanged, this,
           &ExportDataReaction::updateEnableState);
   updateEnableState();
 }
 
 void ExportDataReaction::updateEnableState()
 {
-  if (!m_module) {
-    parentAction()->setEnabled(ActiveObjects::instance().activeModule() !=
-                               nullptr);
-  } else {
+  // TODO: migrate to new pipeline
+  // Old code checked ActiveObjects::activeModule() != nullptr
+  if (m_module) {
     parentAction()->setEnabled(true);
+  } else {
+    parentAction()->setEnabled(false);
   }
 }
 
@@ -62,9 +65,8 @@ void ExportDataReaction::onTriggered()
 {
   Module* module = m_module;
   if (!module) {
-    module = ActiveObjects::instance().activeModule();
-  }
-  if (!module) {
+    // TODO: migrate to new pipeline
+    // Old code used ActiveObjects::activeModule()
     return;
   }
   QString exportType = module->exportDataTypeString();
@@ -249,8 +251,22 @@ bool ExportDataReaction::exportData(const QString& filename)
     if (strcmp(writerName, "vtkTIFFWriter") == 0 && imageType == VTK_DOUBLE) {
       vtkNew<vtkImageData> fImage;
       fImage->DeepCopy(imageData);
-      ConvertToFloatOperator convertFloat;
-      convertFloat.applyTransform(fImage);
+      // Convert double scalars to float for TIFF export
+      auto* scalars = fImage->GetPointData()->GetScalars();
+      vtkNew<vtkFloatArray> floatArray;
+      floatArray->SetNumberOfComponents(scalars->GetNumberOfComponents());
+      floatArray->SetNumberOfTuples(scalars->GetNumberOfTuples());
+      floatArray->SetName(scalars->GetName());
+      for (vtkIdType i = 0;
+           i < scalars->GetNumberOfComponents() *
+                 scalars->GetNumberOfTuples();
+           ++i) {
+        static_cast<float*>(floatArray->GetVoidPointer(0))[i] =
+          static_cast<float>(
+            static_cast<double*>(scalars->GetVoidPointer(0))[i]);
+      }
+      fImage->GetPointData()->RemoveArray(scalars->GetName());
+      fImage->GetPointData()->SetScalars(floatArray);
 
       trivialProducer->SetOutput(fImage);
       trivialProducer->UpdateInformation();

@@ -5,13 +5,13 @@ import math
 import numpy as np
 
 from tomviz._internal import in_application
-from tomviz._internal import require_internal_mode
 from tomviz.internal_utils import _minmax
-if in_application():
-    from vtk import vtkTable
-    from tomviz.internal_dataset import Dataset
-else:
-    from tomviz.external_dataset import Dataset
+
+# Used by the apply_to_each_array isinstance check so it accepts both
+# the in-app (VTK-backed) Dataset and the external (CLI / numpy-backed)
+# Dataset. The concrete classes are pulled in only inside the function
+# bodies that need them.
+from tomviz.dataset import Dataset as AbstractDataset
 
 
 def zoom_shape(input: np.ndarray, zoom: np.ndarray) -> tuple[int]:
@@ -207,7 +207,7 @@ def apply_to_each_array(func):
         # For any data sources in the result, add all the scalars to it
         if isinstance(result, dict):
             for k, v in result.items():
-                if isinstance(v, Dataset):
+                if isinstance(v, AbstractDataset):
                     # Rename the active array
                     v.rename_active(array_names[-1])
                     # Go back through the other results and set scalars on this
@@ -215,14 +215,17 @@ def apply_to_each_array(func):
                     for i, other_result in enumerate(results[:-1]):
                         if (
                             isinstance(other_result, dict) and
-                            isinstance(other_result.get(k), Dataset)
+                            isinstance(other_result.get(k), AbstractDataset)
                         ):
                             other_dataset = other_result[k]
                             other_dataset.rename_active(array_names[i])
                             v.set_scalars(other_dataset.active_name,
                                           other_dataset.active_scalars)
+                    # Restore the original active so the merged output
+                    # doesn't end up on whatever was processed last.
+                    if active_name in v.scalars_names:
+                        v.active_name = active_name
 
-        # Return the final result
         return result
 
     return wrapper
@@ -279,7 +282,6 @@ def make_spreadsheet(column_names: list[str], table: np.ndarray,
     # column_names is a list of strings
     # table is a 2D numpy.ndarray
     # returns a vtkTable object that stores the table content
-    require_internal_mode()
 
     # Create a vtkTable to store the output.
     rows = table.shape[0]

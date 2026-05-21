@@ -5,13 +5,6 @@
 #define tomvizActiveObjects_h
 
 #include <QObject>
-#include <QPointer>
-
-#include "DataSource.h"
-#include "Module.h"
-#include "MoleculeSource.h"
-#include "Operator.h"
-#include "OperatorResult.h"
 
 class pqRenderView;
 class pqTimeKeeper;
@@ -21,7 +14,12 @@ class vtkSMViewProxy;
 
 namespace tomviz {
 
+namespace pipeline {
+class Link;
 class Pipeline;
+class Node;
+class OutputPort;
+} // namespace pipeline
 
 /// ActiveObjects keeps track of active objects in tomviz.
 /// This is similar to pqActiveObjects in ParaView, however it tracks objects
@@ -43,76 +41,33 @@ public:
   /// Returns the active pqRenderView object.
   pqRenderView* activePqRenderView() const;
 
-  /// Returns the active data source.
-  DataSource* activeDataSource() const { return m_activeDataSource; }
-
-  /// Returns the selected data source, nullptr if no data source is selected.
-  DataSource* selectedDataSource() const { return m_selectedDataSource; }
-
-  /// Returns the active operator.
-  Operator* activeOperator() const { return m_activeOperator; }
-
-  /// Returns the active data source.
-  MoleculeSource* activeMoleculeSource() const
-  {
-    return m_activeMoleculeSource;
-  }
-
-  /// Returns the active transformed data source.
-  DataSource* activeTransformedDataSource() const
-  {
-    return m_activeTransformedDataSource;
-  }
-
-  /// Returns the active module.
-  Module* activeModule() const { return m_activeModule; }
-
-  /// Returns the active OperatorResult
-  OperatorResult* activeOperatorResult() const
-  {
-    return m_activeOperatorResult;
-  }
-
   /// Returns the vtkSMSessionProxyManager from the active server/session.
   /// Provided here for convenience, since we need to access the proxy manager
   /// often.
   vtkSMSessionProxyManager* proxyManager() const;
 
-  /// Returns the active pipelines.
-  Pipeline* activePipeline() const;
-
-  /// The "parent" data source is the data source that new operators will be
-  /// appended to. i.e. The closes parent of the currently active data source
-  /// that is not an "Output" data source.
-  DataSource* activeParentDataSource();
-
   /// Returns the active time keeper
   pqTimeKeeper* activeTimeKeeper() const;
+
+  /// Pipeline (single, set once at startup)
+  void setPipeline(pipeline::Pipeline* p);
+  pipeline::Pipeline* pipeline() const;
+
+  /// Active selection tracking. At most one of node / port / link is
+  /// non-null at a time — setting any of them to a non-null value clears
+  /// the others. Use clearActiveSelection() to clear them all at once.
+  void setActiveNode(pipeline::Node* node);
+  pipeline::Node* activeNode() const;
+  void setActivePort(pipeline::OutputPort* port);
+  pipeline::OutputPort* activePort() const;
+  void setActiveLink(pipeline::Link* link);
+  pipeline::Link* activeLink() const;
+  void clearActiveSelection();
+  pipeline::OutputPort* activeTipOutputPort() const;
 
 public slots:
   /// Set the active view;
   void setActiveView(vtkSMViewProxy*);
-
-  /// Set the active data source.
-  void setActiveDataSource(DataSource* source);
-
-  /// Set the selected data source.
-  void setSelectedDataSource(DataSource* source);
-
-  /// Set the active molecule source
-  void setActiveMoleculeSource(MoleculeSource* source);
-
-  /// Set the active transformed data source.
-  void setActiveTransformedDataSource(DataSource* source);
-
-  /// Set the active module.
-  void setActiveModule(Module* module);
-
-  /// Set the active operator result.
-  void setActiveOperatorResult(OperatorResult* result);
-
-  /// Set the active operator.
-  void setActiveOperator(Operator* op);
 
   /// Create a render view if needed.
   void createRenderViewIfNeeded();
@@ -123,18 +78,9 @@ public slots:
   /// Renders all views.
   void renderAllViews();
 
-  /// Edit interaction modes for all data sources
-  void enableTranslation(bool b);
-  void enableRotation(bool b);
-  void enableScaling(bool b);
-
   /// Set whether to enable time series animations.
   void enableTimeSeriesAnimations(bool b);
   void setShowTimeSeriesLabel(bool b);
-
-  bool translationEnabled() const { return m_translationEnabled; }
-  bool rotationEnabled() const { return m_rotationEnabled; }
-  bool scalingEnabled() const { return m_scalingEnabled; }
 
   bool timeSeriesAnimationsEnabled() const
   {
@@ -142,60 +88,9 @@ public slots:
   }
   bool showTimeSeriesLabel() const { return m_showTimeSeriesLabel; }
 
-  void setFixedInteractionDataSource(DataSource* ds)
-  {
-    m_fixedInteractionDataSource = ds;
-    emit interactionDataSourceFixed(ds);
-  }
-
-  DataSource* fixedInteractionDataSource() const
-  {
-    return m_fixedInteractionDataSource;
-  };
-
 signals:
   /// Fired whenever the active view changes.
   void viewChanged(vtkSMViewProxy*);
-
-  /// Fired whenever the active data source changes (or changes type).
-  void dataSourceChanged(DataSource*);
-
-  /// Fired whenever the data source is activated, i.e. selected in the
-  /// pipeline.
-  void dataSourceActivated(DataSource*);
-
-  /// Fired whenever the data source is activated, i.e. selected in the
-  /// pipeline. This signal emits the transformed data source.
-  void transformedDataSourceActivated(DataSource*);
-
-  /// Fired whenever the active module changes.
-  void moleculeSourceChanged(MoleculeSource*);
-
-  /// Fired whenever a module is activated, i.e. selected in the pipeline.
-  void moleculeSourceActivated(MoleculeSource*);
-
-  /// Fired whenever the active module changes.
-  void moduleChanged(Module*);
-
-  /// Fired whenever a module is activated, i.e. selected in the pipeline.
-  void moduleActivated(Module*);
-
-  /// Fired whenever the active operator changes.
-  void operatorChanged(Operator*);
-
-  /// Fired whenever an operator is activated, i.e. selected in the pipeline.
-  void operatorActivated(Operator*);
-
-  /// Fired whenever the active operator changes.
-  void resultChanged(OperatorResult*);
-
-  /// Fired whenever an OperatorResult is activated.
-  void resultActivated(OperatorResult*);
-
-  /// Fired when interaction modes change
-  void translationStateChanged(bool b);
-  void rotationStateChanged(bool b);
-  void scalingStateChanged(bool b);
 
   /// Fired when time series animations enable state is changed.
   void timeSeriesAnimationsEnableStateChanged(bool b);
@@ -203,79 +98,50 @@ signals:
   /// Fired when time series label visibility changes
   void showTimeSeriesLabelChanged(bool b);
 
-  /// Fired whenever the color map has changed
-  void colorMapChanged(DataSource*);
-
   /// Fired to set image viewer mode
   void setImageViewerMode(bool b);
 
-  /// Fired when the interaction data source was fixed.
-  void interactionDataSourceFixed(DataSource*);
+  /// Fired whenever the active pipeline changes.
+  void activePipelineChanged(pipeline::Pipeline*);
+
+  /// Fired whenever the active node changes.
+  void activeNodeChanged(pipeline::Node*);
+
+  /// Fired whenever the active output port changes.
+  void activePortChanged(pipeline::OutputPort*);
+
+  /// Fired whenever the active link changes.
+  void activeLinkChanged(pipeline::Link*);
+
+  /// Fired whenever the active tip output port changes.
+  void activeTipOutputPortChanged(pipeline::OutputPort*);
 
 private slots:
   void viewChanged(pqView*);
-  void dataSourceRemoved(DataSource*);
-  void moleculeSourceRemoved(MoleculeSource*);
-  void moduleRemoved(Module*);
-  void dataSourceChanged();
 
 protected:
   ActiveObjects();
   ~ActiveObjects() override;
 
-  QPointer<DataSource> m_activeDataSource = nullptr;
-  QPointer<DataSource> m_activeTransformedDataSource = nullptr;
-  QPointer<DataSource> m_selectedDataSource = nullptr;
-  DataSource::DataSourceType m_activeDataSourceType = DataSource::Volume;
-  QPointer<DataSource> m_activeParentDataSource = nullptr;
-  QPointer<MoleculeSource> m_activeMoleculeSource = nullptr;
-  QPointer<Module> m_activeModule = nullptr;
-  QPointer<Operator> m_activeOperator = nullptr;
-  QPointer<OperatorResult> m_activeOperatorResult = nullptr;
-  QPointer<DataSource> m_fixedInteractionDataSource = nullptr;
-
-  /// interaction states
-  bool m_translationEnabled = false;
-  bool m_rotationEnabled = false;
-  bool m_scalingEnabled = false;
+  pipeline::Pipeline* m_pipeline = nullptr;
+  pipeline::Node* m_activeNode = nullptr;
+  pipeline::OutputPort* m_activePort = nullptr;
+  pipeline::Link* m_activeLink = nullptr;
+  pipeline::OutputPort* m_activeTipOutputPort = nullptr;
 
   /// Time series
   bool m_timeSeriesAnimationsEnabled = true;
   bool m_showTimeSeriesLabel = true;
 
 private:
+  void setActiveTipOutputPort(pipeline::OutputPort* port);
+  // Tracks the active tip port's effectiveTypeChanged subscription so we
+  // re-emit activeTipOutputPortChanged when type inference updates the tip
+  // (e.g. a freshly-added transform whose output type is inferred from its
+  // input only after the upstream link is created).
+  QMetaObject::Connection m_tipEffectiveTypeConn;
   Q_DISABLE_COPY(ActiveObjects)
 };
-
-inline void ActiveObjects::enableTranslation(bool b)
-{
-  if (m_translationEnabled == b) {
-    return;
-  }
-
-  m_translationEnabled = b;
-  emit translationStateChanged(b);
-}
-
-inline void ActiveObjects::enableRotation(bool b)
-{
-  if (m_rotationEnabled == b) {
-    return;
-  }
-
-  m_rotationEnabled = b;
-  emit rotationStateChanged(b);
-}
-
-inline void ActiveObjects::enableScaling(bool b)
-{
-  if (m_scalingEnabled == b) {
-    return;
-  }
-
-  m_scalingEnabled = b;
-  emit scalingStateChanged(b);
-}
 
 inline void ActiveObjects::enableTimeSeriesAnimations(bool b)
 {

@@ -1,11 +1,13 @@
 {
   "externalCompatible": false,
   "apply_to_each_array": false,
-  "results" : [
+  "results": [
     {
-      "name" : "alignments",
-      "label" : "Alignments",
-      "type" : "table"
+      "name": "alignments",
+      "label": "Alignments",
+      "type": "table"
     }
-  ]
+  ],
+  "inputType": "ImageData",
+  "outputType": "ImageData"
 }

@@ -17,5 +17,7 @@
       "label": "FSC",
       "type": "table"
     }
-  ]
+  ],
+  "inputType": "ImageData",
+  "outputType": "ImageData"
 }

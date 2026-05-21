@@ -1,168 +1,220 @@
-import click
-import json
+###############################################################################
+# This source file is part of the Tomviz project, https://tomviz.org/.
+# It is released under the 3-Clause BSD License, see "LICENSE".
+###############################################################################
+"""tomviz-pipeline — execute a schema-v2 graph state file headlessly.
+
+Sinks are ignored; the leaves of the graph (after sinks are stripped)
+have their unconnected output ports written to disk via the registered
+writers (EMD for ImageData, CSV for Tables, XYZ for Molecules, …). The
+future C++ external pipeline executor will invoke this same entry
+point with `--progress socket|files` so the in-app pipeline can
+offload graph execution to a separate Python environment.
+
+Output layout depends on the number of runs:
+
+  * Exactly one run: outputs land directly under ``--output-dir``::
+
+        <output-dir>/<id>_<label>__<port>.<ext>
+
+  * Two or more runs: each lands in its own subdirectory::
+
+        <output-dir>/<prefix>_<N>/<id>_<label>__<port>.<ext>
+
+``<prefix>`` defaults to ``"run"`` (override with ``--run-prefix``)
+and ``<N>`` is zero-padded by the total run count.
+
+Run modes
+---------
+
+* No ``--input``: execute the state file as-is, one run::
+
+    tomviz-pipeline -s state.tvsm -o out
+
+* Bare ``--input`` (single source — exactly one ``--input``, no
+  ``NODE_ID:`` prefix; pipeline must contain exactly one
+  ReaderSourceNode)::
+
+    tomviz-pipeline -s state.tvsm -o out --input a.emd
+    tomviz-pipeline -s state.tvsm -o out --input 'data/*.emd'
+    tomviz-pipeline -s state.tvsm -o out --input a.emd,b.emd,c.emd
+
+* Prefixed ``--input`` (multi-source — every ``--input`` carries a
+  ``NODE_ID:`` prefix). A length-1 list against another source's
+  longer list broadcasts; non-broadcast lists must all match in
+  length. Repeats for the same node id concatenate::
+
+    tomviz-pipeline -s state.tvsm -o out \\
+        --input '1:data/*.emd' --input '3:reference.emd'
+    tomviz-pipeline -s state.tvsm -o out \\
+        --input 1:a.emd --input 1:b.emd --input 3:ref.emd
+
+Each ``--input`` value (after the optional prefix) is comma-separated;
+each segment is either a literal path or a glob pattern. Mixing bare
+and prefixed values, or supplying multiple bare values, is rejected."""
+
+import glob as _glob
 import logging
+import re
+import sys
 from pathlib import Path
 
-from tomviz import executor
+import click
 
-from .load_data_source import create_read_options, extract_data_path
-from .data_source_dependencies import load_dependencies
+from tomviz.pipeline import run
+
+
+LOG_FORMAT = '[%(asctime)s] %(levelname)s: %(message)s'
 
 logger = logging.getLogger('tomviz')
 
-
-def _create_data_source_options(data_sources):
-    ids = [x['id'] for x in data_sources]
-    filenames = [x['reader']['fileNames'][0] for x in data_sources]
-    return dict(zip(ids, filenames))
+_PREFIX_RE = re.compile(r'^(\d+):(.*)$')
 
 
-def _data_source_options_string(options):
-    s = ''
-    for k, v in options.items():
-        s += f'{k}  ({v})\n\n'
-
-    return s
-
-
-def _create_data_source_options_string(data_sources):
-    options = _create_data_source_options(data_sources)
-    return _data_source_options_string(options)
+def _configure_logging():
+    if logger.hasHandlers():
+        return
+    logger.setLevel(logging.INFO)
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter(LOG_FORMAT))
+    logger.addHandler(handler)
 
 
-def _auto_select_data_source(data_sources):
-    if len(data_sources) == 1:
-        # Only one data source. Select this one.
-        if 'id' not in data_sources[0]:
-            # For backwards compatibility, when we did not have data
-            # source ids (as is being done in the CI), make an id.
-            data_sources[0]['id'] = '0x0'
-        return data_sources[0]['id']
+@click.command()
+@click.option('-s', '--state-file', 'state_file',
+              required=True, type=click.Path(exists=True, dir_okay=False),
+              help='Path to the .tvsm or .tvh5 state file to execute.')
+@click.option('-o', '--output-dir', 'output_dir',
+              required=True, type=click.Path(file_okay=False),
+              help='Directory under which per-run subdirectories are '
+                   'created.')
+@click.option('-p', '--progress', 'progress_method',
+              type=click.Choice(['tqdm', 'socket', 'files']),
+              default='tqdm', show_default=True,
+              help='How to report operator progress.')
+@click.option('-u', '--progress-path', 'progress_path',
+              type=click.Path(), default=None,
+              help='Socket path (socket mode) or directory (files mode).')
+@click.option('-i', '--input', 'inputs', type=str, multiple=True,
+              help='Input override(s). Format: [NODE_ID:]VALUE where '
+                   'VALUE is one or more comma-separated paths or '
+                   'globs. Without a NODE_ID prefix, the pipeline must '
+                   'have exactly one ReaderSourceNode and only one '
+                   'bare --input is permitted; pass multiple paths via '
+                   'a comma-separated list or glob inside the value. '
+                   'With NODE_ID prefixes, every --input must be '
+                   'prefixed; repeats for the same node id concatenate.')
+@click.option('--run-prefix', 'run_prefix', type=str, default='run',
+              show_default=True,
+              help='Prefix for per-run subdirectories when there are '
+                   '2+ runs. The full name is "<prefix>_<N>" with N '
+                   'zero-padded. Ignored for single-run invocations '
+                   '(outputs go straight into --output-dir).')
+@click.option('--output-format', 'output_format',
+              type=click.Choice(['port', 'state', 'state+port']),
+              default='port', show_default=True,
+              help='What to write per run. "port" → typed per-port '
+                   'files (EMD/CSV/XYZ). "state" → a single '
+                   'output_state.tvh5 bundling the schema-v2 state '
+                   'with embedded volume payloads. "state+port" → '
+                   'both.')
+def main(state_file, output_dir, progress_method, progress_path,
+         inputs, run_prefix, output_format):
+    """Execute a tomviz pipeline state file headlessly."""
+    _configure_logging()
 
-    with_pipeline = [len(x.get('operators', [])) > 0 for x in data_sources]
-    if sum(with_pipeline) == 0:
-        raise Exception('No operators were found')
+    state_path = Path(state_file)
+    out_dir = Path(output_dir)
 
-    if sum(with_pipeline) > 1:
-        options = _create_data_source_options_string(data_sources)
-        msg = (
-            'Multiple data sources with operators were found. One must be '
-            'selected explicitly with the `-x` argument so we know which '
-            f'pipeline to use. Available options:\n\n{options}'
+    inputs_arg = _build_inputs_arg(list(inputs)) if inputs else None
+
+    try:
+        run_dirs = run(
+            state_path=state_path,
+            output_dir=out_dir,
+            inputs=inputs_arg,
+            run_dir_prefix=run_prefix,
+            output_format=output_format,
+            progress_method=progress_method,
+            progress_path=progress_path,
         )
-        raise Exception(msg)
+    except (ValueError, TypeError) as e:
+        click.echo(f'Error: {e}', err=True)
+        sys.exit(2)
 
-    return data_sources[with_pipeline.index(True)]['id']
-
-
-def _extract_pipeline(state, selected_data_source=None):
-    if 'dataSources' not in state:
-        raise Exception('Invalid state file: \'dataSources\' not found.')
-
-    data_sources = state['dataSources']
-
-    if not data_sources:
-        raise Exception('No data source found.')
-
-    if selected_data_source is None:
-        selected_data_source = _auto_select_data_source(data_sources)
-
-    ids = [x['id'] for x in data_sources]
-    if selected_data_source not in ids:
-        options = _create_data_source_options_string(data_sources)
-        msg = (
-            f'{selected_data_source} is not in the list of data sources! '
-            f'Available options:\n\n{options}'
-        )
-        raise Exception(msg)
-
-    data_source = data_sources[ids.index(selected_data_source)]
-
-    if 'operators'not in data_source:
-        raise Exception('\'operators\' not found.')
-
-    operators = data_source['operators']
-
-    if len(operators) == 0:
-        raise Exception('No operators found.')
-
-    return data_source, operators
+    logger.info('Wrote %d run directory(ies) under %s',
+                len(run_dirs), out_dir)
 
 
-@click.command(name="tomviz")
-@click.option('-d', '--data-path', help='Path to an EMD/Data Exchange file or'
-              ' directory containing EMD/Data Exchange files, can be used'
-              ' to override data source in state file. If multiple files are'
-              ' provided the pipeline with be run for each file.',
-              type=click.Path(exists=True))
-@click.option('-s', '--state-file-path', help='Path to the Tomviz state file',
-              type=click.Path(exists=True), required=True)
-@click.option('-x', '--selected-data-source',
-              help='Explicitly select the id of the data source from which '
-                   'the pipeline will be used',
-              type=str, default=None)
-@click.option('-o', '--output-file-path',
-              help='Path to write the transformed dataset.', type=click.Path())
-@click.option('-p', '--progress-method',
-              help='The method to use to progress updates.',
-              type=click.Choice(['tqdm', 'socket', 'files']), default='tqdm')
-@click.option('-u', '--socket-path',
-              help='The socket path to use for progress updates.',
-              type=click.Path(), default='/tomviz/progress')
-@click.option('-i', '--operator-index',
-              help='The operator to start at.',
-              type=int, default=0)
-def main(data_path, state_file_path, output_file_path, progress_method,
-         socket_path, operator_index, selected_data_source):
+def _build_inputs_arg(raw_inputs: list[str]):
+    """Parse the raw ``--input`` strings into the value to forward to
+    :func:`tomviz.pipeline.run`. The result is either a flat list of
+    paths (bare mode → single-source convenience) or a
+    ``dict[node_id, list[paths]]`` (prefixed mode)."""
+    parsed = [_parse_input(v) for v in raw_inputs]
+    bare = [paths for sid, paths in parsed if sid is None]
+    prefixed = [(sid, paths) for sid, paths in parsed if sid is not None]
 
-    # Extract the pipeline
-    with open(state_file_path, encoding='utf-8') as fp:
-        state = json.load(fp)
+    if bare and prefixed:
+        raise click.UsageError(
+            'Cannot mix bare and "NODE_ID:" prefixed --input values; '
+            'pick one mode.')
 
-    data_source, operators = _extract_pipeline(state, selected_data_source)
+    if bare:
+        if len(bare) > 1:
+            raise click.UsageError(
+                'Only one bare --input is allowed (single-source '
+                'mode). Use comma-separated paths or a glob inside '
+                'the value to specify multiple inputs, or use the '
+                '"NODE_ID:" prefix for multi-source batch.')
+        # Single-source convenience: pass the path list straight
+        # through; run() will auto-pick the unique reader.
+        return bare[0]
 
-    # Load the dependencies for the data source
-    dependencies = load_dependencies(data_source, state, state_file_path,
-                                     progress_method, socket_path)
+    by_id: dict[int, list[str]] = {}
+    for sid, paths in prefixed:
+        by_id.setdefault(sid, []).extend(paths)
+    return by_id
 
-    # Create the read options
-    read_options = create_read_options(data_source)
 
-    # if we have been provided a data file path we are going to use the one
-    # from the state file, so check it exists.
-    if data_path is None:
-        data_path = extract_data_path(data_source, state_file_path)
+def _parse_input(value: str):
+    """Parse a single ``--input`` value into ``(node_id, paths)``.
 
-    exts = ['.emd', '.h5', '.hdf5']
-    data_path = Path(data_path)
-    # Do we have multiple files to operate on
-    if data_path.is_dir():
-        data_file_paths = []
-        for ext in exts:
-            data_file_paths += list(data_path.glob('*' + ext))
-
-        output_file_paths \
-            = ['%s_transformed.emd' % x.stem for x in data_file_paths]
-        # If we have been give an output directory write the output there
-        if output_file_path is not None and Path(output_file_path).is_dir():
-            output_file_paths \
-                = [Path(output_file_path) / x for x in output_file_paths]
+    ``node_id`` is ``None`` when the value has no ``\\d+:`` prefix.
+    Comma-separated segments inside the value are each globbed/
+    validated, then concatenated into the returned ``paths`` list."""
+    m = _PREFIX_RE.match(value)
+    if m:
+        node_id: int | None = int(m.group(1))
+        rest = m.group(2)
     else:
-        if data_path.suffix.lower() not in exts:
-            raise Exception(
-                'Unsupported data source format, only HDF5 formats supported.')
-        data_file_paths = [data_path]
-        output_file_paths = [output_file_path]
+        node_id = None
+        rest = value
 
-    number_of_files = len(data_file_paths)
-    if number_of_files == 0:
-        logger.warning('No data files found.')
-    elif number_of_files > 1:
-        logger.info('Executing pipeline on %d files.' % number_of_files)
+    if not rest:
+        raise click.BadParameter(
+            f'--input value {value!r} has no path part')
 
-    for (data_file_path, output_file_path) in zip(data_file_paths,
-                                                  output_file_paths):
-        logger.info('Executing pipeline on %s' % data_file_path)
-        executor.execute(operators, operator_index, data_file_path,
-                         output_file_path, progress_method, socket_path,
-                         read_options, dependencies)
+    paths: list[str] = []
+    for segment in rest.split(','):
+        segment = segment.strip()
+        if not segment:
+            raise click.BadParameter(
+                f'--input value {value!r}: empty segment')
+        if _glob.has_magic(segment):
+            matched = sorted(_glob.glob(segment))
+            if not matched:
+                raise click.BadParameter(
+                    f'--input pattern {segment!r} matched no files')
+            paths.extend(matched)
+        else:
+            if not Path(segment).is_file():
+                raise click.BadParameter(
+                    f'--input path {segment!r} does not exist '
+                    f'or is not a file')
+            paths.append(segment)
+    return node_id, paths
+
+
+if __name__ == '__main__':
+    main()

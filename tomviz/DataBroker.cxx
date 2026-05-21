@@ -3,7 +3,6 @@
 
 #include "DataBroker.h"
 
-#include "DataSource.h"
 #include "Utilities.h"
 
 #include <vtkImageData.h>

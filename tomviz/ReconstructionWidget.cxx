@@ -5,13 +5,8 @@
 
 #include "ui_ReconstructionWidget.h"
 
-#include "DataSource.h"
-#include "LoadDataReaction.h"
-#include "TomographyReconstruction.h"
-#include "TomographyTiltSeries.h"
 #include "Utilities.h"
 
-#include <vtkActor.h>
 #include <vtkImageData.h>
 #include <vtkImageProperty.h>
 #include <vtkImageSlice.h>
@@ -25,14 +20,11 @@
 #include <vtkRenderWindow.h>
 #include <vtkRenderWindowInteractor.h>
 #include <vtkRenderer.h>
-#include <vtkSMSourceProxy.h>
+#include <vtkSMProxy.h>
 #include <vtkScalarsToColors.h>
 #include <vtkTrivialProducer.h>
 
-#include <QCoreApplication>
 #include <QElapsedTimer>
-#include <QPointer>
-#include <QThread>
 
 namespace tomviz {
 
@@ -40,6 +32,7 @@ class ReconstructionWidget::RWInternal
 {
 public:
   Ui::ReconstructionWidget Ui;
+  vtkNew<vtkTrivialProducer> producer;
   vtkNew<vtkImageSliceMapper> dataSliceMapper;
   vtkNew<vtkImageSliceMapper> reconstructionSliceMapper;
   vtkNew<vtkImageSliceMapper> sinogramMapper;
@@ -54,71 +47,67 @@ public:
 
   vtkNew<vtkLineSource> currentSliceLine;
   vtkNew<vtkActor> currentSliceActor;
-  QPointer<DataSource> dataSource;
-  bool canceled;
-  bool started;
+  vtkImageData* inputData = nullptr;
+  int totalSlicesToProcess = 0;
 
   QElapsedTimer timer;
-  int totalSlicesToProcess;
 
   void setupCurrentSliceLine(int sliceNum)
   {
-    auto t = this->dataSource->producer();
-    if (!t) {
+    if (!inputData) {
       return;
     }
-    auto imageData = vtkImageData::SafeDownCast(t->GetOutputDataObject(0));
-    if (imageData) {
-      int extent[6];
-      imageData->GetExtent(extent);
-      double spacing[3];
-      imageData->GetSpacing(spacing);
-      double bounds[6];
-      imageData->GetBounds(bounds);
-      double point1[3], point2[3];
-      point1[0] = bounds[0] + sliceNum * spacing[0];
-      point2[0] = bounds[0] + sliceNum * spacing[0];
-      point1[1] = bounds[2] - (bounds[3] - bounds[2]);
-      point2[1] = bounds[3] + (bounds[3] - bounds[2]);
-      point1[2] = bounds[5] + 1;
-      point2[2] = bounds[5] + 1;
-      this->currentSliceLine->SetPoint1(point1);
-      this->currentSliceLine->SetPoint2(point2);
-      this->currentSliceLine->Update();
-      this->currentSliceActor->GetMapper()->Update();
-    }
+    int extent[6];
+    inputData->GetExtent(extent);
+    double spacing[3];
+    inputData->GetSpacing(spacing);
+    double bounds[6];
+    inputData->GetBounds(bounds);
+    double point1[3], point2[3];
+    point1[0] = bounds[0] + sliceNum * spacing[0];
+    point2[0] = bounds[0] + sliceNum * spacing[0];
+    point1[1] = bounds[2] - (bounds[3] - bounds[2]);
+    point2[1] = bounds[3] + (bounds[3] - bounds[2]);
+    point1[2] = bounds[5] + 1;
+    point2[2] = bounds[5] + 1;
+    this->currentSliceLine->SetPoint1(point1);
+    this->currentSliceLine->SetPoint2(point2);
+    this->currentSliceLine->Update();
+    this->currentSliceActor->GetMapper()->Update();
   }
 };
 
-ReconstructionWidget::ReconstructionWidget(DataSource* source, QWidget* p)
+ReconstructionWidget::ReconstructionWidget(vtkImageData* inputData,
+                                           vtkSMProxy* colorMap,
+                                           QWidget* p)
   : QWidget(p), Internals(new RWInternal)
 {
   this->Internals->Ui.setupUi(this);
-  this->Internals->dataSource = source;
-  this->Internals->canceled = false;
-  this->Internals->started = false;
+  this->Internals->inputData = inputData;
 
-  auto t = source->producer();
+  if (!inputData) {
+    return;
+  }
 
-  this->Internals->dataSliceMapper->SetInputConnection(t->GetOutputPort());
-  this->Internals->sinogramMapper->SetInputConnection(t->GetOutputPort());
+  // Wrap the input in a trivial producer for the mappers.
+  this->Internals->producer->SetOutput(inputData);
+
+  this->Internals->dataSliceMapper->SetInputConnection(
+    this->Internals->producer->GetOutputPort());
+  this->Internals->sinogramMapper->SetInputConnection(
+    this->Internals->producer->GetOutputPort());
   this->Internals->sinogramMapper->SetOrientationToX();
   this->Internals->sinogramMapper->SetSliceNumber(
     this->Internals->sinogramMapper->GetSliceNumberMinValue());
   this->Internals->sinogramMapper->Update();
 
-  vtkImageData* imageData =
-    vtkImageData::SafeDownCast(t->GetOutputDataObject(0));
-  if (!imageData) {
-    // We can't really handle this well since we depend on there being data
-    return;
-  }
   int extent[6];
-  imageData->GetExtent(extent);
+  inputData->GetExtent(extent);
   this->Internals->totalSlicesToProcess = extent[1] - extent[0] + 1;
-  this->Internals->dataSliceMapper->SetSliceNumber(extent[0] +
-                                                   (extent[1] - extent[0]) / 2);
+  this->Internals->dataSliceMapper->SetSliceNumber(
+    extent[0] + (extent[1] - extent[0]) / 2);
   this->Internals->dataSliceMapper->Update();
+
   int extent2[6] = { 0, 0, extent[2], extent[3], extent[2], extent[3] };
   this->Internals->reconstruction->SetExtent(extent2);
   this->Internals->reconstruction->AllocateScalars(VTK_FLOAT, 1);
@@ -135,12 +124,13 @@ ReconstructionWidget::ReconstructionWidget(DataSource* source, QWidget* p)
     this->Internals->reconstructionSliceMapper);
   this->Internals->sinogram->SetMapper(this->Internals->sinogramMapper);
 
-  vtkScalarsToColors* lut =
-    vtkScalarsToColors::SafeDownCast(source->colorMap()->GetClientSideObject());
-
-  this->Internals->dataSlice->GetProperty()->SetLookupTable(lut);
-  this->Internals->reconstructionSlice->GetProperty()->SetLookupTable(lut);
-  this->Internals->sinogram->GetProperty()->SetLookupTable(lut);
+  if (colorMap) {
+    vtkScalarsToColors* lut =
+      vtkScalarsToColors::SafeDownCast(colorMap->GetClientSideObject());
+    this->Internals->dataSlice->GetProperty()->SetLookupTable(lut);
+    this->Internals->reconstructionSlice->GetProperty()->SetLookupTable(lut);
+    this->Internals->sinogram->GetProperty()->SetLookupTable(lut);
+  }
 
   this->Internals->dataSliceRenderer->AddViewProp(
     this->Internals->dataSlice);
@@ -164,10 +154,8 @@ ReconstructionWidget::ReconstructionWidget(DataSource* source, QWidget* p)
 
   this->Internals->Ui.currentSliceView->renderWindow()->AddRenderer(
     this->Internals->dataSliceRenderer);
-
   this->Internals->Ui.currentReconstructionView->renderWindow()->AddRenderer(
     this->Internals->reconstructionSliceRenderer);
-
   this->Internals->Ui.sinogramView->renderWindow()->AddRenderer(
     this->Internals->sinogramRenderer);
 
@@ -190,6 +178,8 @@ ReconstructionWidget::ReconstructionWidget(DataSource* source, QWidget* p)
                         this->Internals->sinogramMapper);
   tomviz::setupRenderer(this->Internals->reconstructionSliceRenderer,
                         this->Internals->reconstructionSliceMapper);
+
+  this->Internals->timer.start();
 }
 
 ReconstructionWidget::~ReconstructionWidget()
@@ -197,19 +187,8 @@ ReconstructionWidget::~ReconstructionWidget()
   delete this->Internals;
 }
 
-void ReconstructionWidget::startReconstruction()
-{
-  Ui::ReconstructionWidget& ui = this->Internals->Ui;
-  ui.statusLabel->setText(
-    QString("Slice # 0 out of %1\nTime remaining: unknown")
-      .arg(this->Internals->totalSlicesToProcess));
-  this->Internals->timer.start();
-}
-
 void ReconstructionWidget::updateProgress(int progress)
 {
-  // with the new setup this may happen.  The initial estimates may be off, but
-  // this will keep garbage from populating the time remaining field.
   if (!this->Internals->timer.isValid()) {
     this->Internals->timer.start();
   }

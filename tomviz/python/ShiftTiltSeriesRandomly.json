@@ -1,16 +1,18 @@
 {
-  "name" : "ShiftTiltSeries",
-  "label" : "Shift Tilt Series Randomly",
-  "description" : "Apply random integer shifts to tilt series. The maximum shift can be specified betow.",
+  "name": "ShiftTiltSeries",
+  "label": "Shift Tilt Series Randomly",
+  "description": "Apply random integer shifts to tilt series. The maximum shift can be specified betow.",
   "apply_to_each_array": false,
-  "parameters" : [
-      {
-      "name" : "maxShift",
-      "label" : "Maximum shift",
-      "description" : "Max shift to apply",
-      "type" : "int",
-      "default" : 1,
-      "minimum" : 0
-     }
-  ]
+  "parameters": [
+    {
+      "name": "maxShift",
+      "label": "Maximum shift",
+      "description": "Max shift to apply",
+      "type": "int",
+      "default": 1,
+      "minimum": 0
+    }
+  ],
+  "inputType": "TiltSeries",
+  "outputType": "TiltSeries"
 }

@@ -20,10 +20,10 @@
 #include <QSignalSpy>
 #include <QString>
 
-#include "PipelineProxy.h"
+#include "legacy/PipelineProxy.h"
 #include "TomvizTest.h"
-#include "operators/OperatorProxy.h"
-#include "operators/OperatorPython.h"
+#include "legacy/operators/OperatorProxy.h"
+#include "legacy/operators/OperatorPython.h"
 
 using namespace tomviz;
 

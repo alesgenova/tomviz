@@ -15,7 +15,13 @@
 #include <vtkSMPropertyHelper.h>
 #include <vtkSMSettings.h>
 #include <vtkSMViewProxy.h>
+#include <vtkMolecule.h>
+#include <vtkSmartPointer.h>
 #include <vtkVector.h>
+
+#include <QCheckBox>
+#include <QScrollArea>
+#include <QVBoxLayout>
 
 #include "AboutDialog.h"
 #include "AcquisitionWidget.h"
@@ -30,27 +36,44 @@
 #include "DataBroker.h"
 #include "DataBrokerLoadReaction.h"
 #include "DataBrokerSaveReaction.h"
-#include "DataPropertiesPanel.h"
 #include "DataTransformMenu.h"
 #include "FileFormatManager.h"
 #include "LoadDataReaction.h"
 #include "LoadPaletteReaction.h"
 #include "LoadStackReaction.h"
 #include "LoadTimeSeriesReaction.h"
-#include "ModuleManager.h"
-#include "ModuleMenu.h"
-#include "ModulePropertiesPanel.h"
-#include "OperatorFactory.h"
-#include "OperatorProxy.h"
+#include "legacy/modules/ModuleManager.h"
+#include "legacy/modules/ModuleMenu.h"
+#include "PipelineModuleMenu.h"
+#include "pipeline/Pipeline.h"
+#include "pipeline/PipelineExecutor.h"
+#include "pipeline/ThreadedExecutor.h"
+#include "pipeline/PipelineControlsWidget.h"
+#include "pipeline/PipelineStripWidget.h"
+#include "pipeline/Node.h"
+#include "pipeline/TransformNode.h"
+#include "pipeline/OutputPort.h"
+#include "pipeline/InputPort.h"
+#include "pipeline/Link.h"
+#include "pipeline/PortData.h"
+#include "pipeline/PortDataMetadata.h"
+#include "pipeline/SinkGroupNode.h"
+#include "pipeline/sinks/LegacyModuleSink.h"
+#include "pipeline/data/VolumeData.h"
+#include "pipeline/NodeEditDialog.h"
+#include "pipeline/NodePropertiesPanel.h"
+#include "pipeline/VolumePropertiesWidget.h"
+#include "MoleculeProperties.h"
+#include "CentralWidget.h"
+#include "OperatorSearchDialog.h"
 #include "PassiveAcquisitionWidget.h"
-#include "Pipeline.h"
-#include "PipelineManager.h"
-#include "PipelineProxy.h"
-#include "PipelineSettingsDialog.h"
+#include "legacy/Pipeline.h"
+#include "legacy/PipelineManager.h"
+#include "legacy/PipelineProxy.h"
 #include "ProgressDialogManager.h"
 #include "PtychoRunner.h"
 #include "PyXRFRunner.h"
-#include "PythonGeneratedDatasetReaction.h"
+#include "AddPythonSourceReaction.h"
 #include "PythonUtilities.h"
 #include "RecentFilesMenu.h"
 #include "ReconstructionReaction.h"
@@ -62,33 +85,35 @@
 #include "SaveScreenshotReaction.h"
 #include "SaveWebReaction.h"
 #include "SetDataTypeReaction.h"
-#include "SetTiltAnglesOperator.h"
 #include "SetTiltAnglesReaction.h"
 #include "Utilities.h"
 #include "ViewMenuManager.h"
-#include "VolumeManager.h"
+#include "legacy/modules/VolumeManager.h"
 #include "WelcomeDialog.h"
 #include "tomvizConfig.h"
 
-#include "PipelineModel.h"
+#include "legacy/PipelineModel.h"
 
 #include <QAction>
 #include <QCloseEvent>
 #include <QDebug>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QMimeData>
 #include <QDir>
-#include <QFileDialog>
 #include <QFileInfo>
-#include <QFutureWatcher>
 #include <QIcon>
+#include <QKeySequence>
 #include <QMessageBox>
+#include <QShortcut>
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
+#include <QSet>
 #include <QStandardPaths>
 #include <QSurfaceFormat>
 #include <QTimer>
 #include <QToolButton>
 #include <QUrl>
-#include <QtConcurrent>
 
 namespace {
 QString getAutosaveFile()
@@ -106,6 +131,16 @@ QString getAutosaveFile()
 class Connection;
 
 namespace tomviz {
+
+MainWindow* MainWindow::instance()
+{
+  for (auto* w : QApplication::topLevelWidgets()) {
+    auto* mw = qobject_cast<MainWindow*>(w);
+    if (mw)
+      return mw;
+  }
+  return nullptr;
+}
 
 MainWindow::MainWindow(QWidget* parent, Qt::WindowFlags flags)
   : QMainWindow(parent, flags), m_ui(new Ui::MainWindow)
@@ -133,6 +168,7 @@ MainWindow::MainWindow(QWidget* parent, Qt::WindowFlags flags)
 
   // checkOpenGL();
   m_ui->setupUi(this);
+  setAcceptDrops(true);
   // Force full messages to be shown
   m_ui->outputWidget->showFullMessages(true);
   m_timer = new QTimer(this);
@@ -191,42 +227,390 @@ MainWindow::MainWindow(QWidget* parent, Qt::WindowFlags flags)
   connect(m_ui->outputWidget, &pqOutputWidget::messageDisplayed, this,
           &MainWindow::handleMessage);
 
-  // Link the histogram in the central widget to the active data source.
-  m_ui->centralWidget->connect(
-    &ActiveObjects::instance(), &ActiveObjects::transformedDataSourceActivated,
-    m_ui->centralWidget, &CentralWidget::setActiveColorMapDataSource);
-  connect(&ActiveObjects::instance(), &ActiveObjects::moduleActivated,
-          m_ui->centralWidget, &CentralWidget::setActiveModule);
-  connect(&ActiveObjects::instance(), &ActiveObjects::colorMapChanged,
-          m_ui->centralWidget, &CentralWidget::setActiveColorMapDataSource);
-  connect(m_ui->dataPropertiesPanel, &DataPropertiesPanel::colorMapUpdated,
-          m_ui->centralWidget, &CentralWidget::onColorMapUpdated);
-  connect(&ActiveObjects::instance(), &ActiveObjects::operatorActivated,
-          m_ui->centralWidget, &CentralWidget::setActiveOperator);
+  // The color map / histogram updates are now driven by onNodeSelected()
+  // and onPortSelected() which call CentralWidget::setActiveSinkNode()
+  // and CentralWidget::setActiveVolumeData().
 
-  m_ui->treeWidget->setModel(new PipelineModel(this));
-  m_ui->treeWidget->initLayout();
+  // Create pipeline controls and strip widgets in the left dock
+  m_pipelineControls = new pipeline::PipelineControlsWidget(this);
+  m_ui->pipelineContainerLayout->addWidget(m_pipelineControls);
+  m_pipelineStrip = new pipeline::PipelineStripWidget(this);
+  m_pipelineStrip->setSortOrder(pipeline::SortOrder::DepthFirst);
+  auto* pipelineScroll = new QScrollArea(this);
+  pipelineScroll->setWidgetResizable(true);
+  pipelineScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  // pipelineScroll->setFrameShape(QFrame::NoFrame);
+  QPalette scrollPal = pipelineScroll->palette();
+  scrollPal.setColor(QPalette::Window, Qt::white);
+  pipelineScroll->setPalette(scrollPal);
+  // Wrap the strip widget in a container with padding so the scroll area
+  // provides insets on the top, right, and bottom.
+  auto* scrollContainer = new QWidget();
+  scrollContainer->setAutoFillBackground(true);
+  scrollContainer->setPalette(scrollPal);
+  auto* scrollLayout = new QVBoxLayout(scrollContainer);
+  scrollLayout->setContentsMargins(0, 4, 4, 4);
+  scrollLayout->addWidget(m_pipelineStrip);
+  pipelineScroll->setWidget(scrollContainer);
+  m_ui->pipelineContainerLayout->addWidget(pipelineScroll);
+  connect(m_pipelineControls,
+          &pipeline::PipelineControlsWidget::dimmingToggled,
+          m_pipelineStrip,
+          &pipeline::PipelineStripWidget::setDimmingEnabled);
+  connect(m_pipelineStrip, &pipeline::PipelineStripWidget::nodeSelected,
+          this, &MainWindow::onNodeSelected);
+  connect(m_pipelineStrip, &pipeline::PipelineStripWidget::portSelected,
+          this, &MainWindow::onPortSelected);
+  connect(m_pipelineStrip, &pipeline::PipelineStripWidget::linkSelected,
+          this, &MainWindow::onLinkSelected);
+  connect(m_pipelineStrip, &pipeline::PipelineStripWidget::selectionCleared,
+          &ActiveObjects::instance(), &ActiveObjects::clearActiveSelection);
+  connect(m_pipelineStrip, &pipeline::PipelineStripWidget::deleteNodeRequested,
+          this, [this](pipeline::Node* node) {
+            auto* p = pipeline();
+            if (p && !p->isExecuting()) {
+              p->removeNode(node);
+            }
+          });
 
-  // Ensure that items are expanded by default, can be collapsed at will.
-  connect(m_ui->treeWidget->model(), &QAbstractItemModel::rowsInserted,
-          m_ui->treeWidget, &QTreeView::expandAll);
-  connect(m_ui->treeWidget->model(), &QAbstractItemModel::modelReset,
-          m_ui->treeWidget, &QTreeView::expandAll);
+  // Sync ActiveObjects changes back to the strip widget and properties panel.
+  // This ensures programmatic setActiveNode/Port/Link calls are reflected.
+  connect(&ActiveObjects::instance(), &ActiveObjects::activeNodeChanged,
+          this, &MainWindow::onActiveNodeChanged);
+  connect(&ActiveObjects::instance(), &ActiveObjects::activePortChanged,
+          this, &MainWindow::onActivePortChanged);
+  connect(&ActiveObjects::instance(), &ActiveObjects::activeLinkChanged,
+          this, &MainWindow::onActiveLinkChanged);
+
+  // Double-click on a node with an editor opens the edit dialog
+  connect(m_pipelineStrip, &pipeline::PipelineStripWidget::nodeDoubleClicked,
+          this, [this](pipeline::Node* node) {
+            if (node && node->hasPropertiesWidget()) {
+              auto* dlg = new pipeline::NodeEditDialog(
+                node, pipeline(), this);
+              dlg->setAttribute(Qt::WA_DeleteOnClose);
+              dlg->setWindowTitle(
+                QString("Edit - %1").arg(node->label()));
+              dlg->show();
+            }
+          });
+
+  // Link validator: type-compatible, different nodes. If the target input
+  // already has a link, the existing one will be replaced when the drag
+  // completes.
+  m_pipelineStrip->setLinkValidator(
+    [](pipeline::OutputPort* from, pipeline::InputPort* to) -> bool {
+      if (from->node() == to->node()) {
+        return false;
+      }
+      if (!pipeline::isPortTypeCompatible(from->type(),
+                                          to->acceptedTypes())) {
+        return false;
+      }
+      if (!from->canAcceptLink(to)) {
+        return false;
+      }
+      return true;
+    });
+
+  // Create the link when the user completes a drag between ports.
+  // If the destination is a TransformNode with a custom properties UI and all
+  // its inputs are now connected, show the dialog before executing.  Cancel
+  // removes the newly created link; OK/Apply executes the pipeline.
+  connect(m_pipelineStrip, &pipeline::PipelineStripWidget::linkRequested,
+          this, [this](pipeline::OutputPort* from, pipeline::InputPort* to) {
+            auto* p = pipeline();
+            if (!p) {
+              return;
+            }
+
+            // If the target already has a link (e.g. stealing a sink into
+            // a group), remove the existing link first.
+            if (to->link()) {
+              p->removeLink(to->link());
+            }
+
+            auto* link = p->createLink(from, to);
+            if (!link) {
+              return;
+            }
+
+            // Check if all inputs on the destination node are connected.
+            // Don't execute until they are.
+            auto* destNode = to->node();
+            bool allConnected = true;
+            for (auto* input : destNode->inputPorts()) {
+              if (!input->link()) {
+                allConnected = false;
+                break;
+              }
+            }
+
+            if (!allConnected) {
+              return;
+            }
+
+            // Auto-open the edit dialog only for nodes the user just
+            // dropped — i.e. NodeState::New. Reconnecting an existing
+            // transform (Stale/Current), or wiring up a template-loaded
+            // transform whose parameters are already set, should not
+            // pop the dialog.
+            if (destNode && destNode->hasPropertiesWidget() &&
+                destNode->state() == pipeline::NodeState::New) {
+              auto* dialog = new pipeline::NodeEditDialog(
+                destNode, p, this);
+              connect(dialog, &QDialog::rejected, this,
+                      [p, link]() { p->removeLink(link); });
+              dialog->setAttribute(Qt::WA_DeleteOnClose);
+              dialog->show();
+              return;
+            }
+
+            p->execute();
+          });
+
+  // Leave-group: relink the member to the group's upstream port
+  connect(m_pipelineStrip, &pipeline::PipelineStripWidget::leaveGroupRequested,
+          this,
+          [this](pipeline::Node* member, pipeline::SinkGroupNode* group) {
+            auto* p = pipeline();
+            if (!p) {
+              return;
+            }
+            for (auto* inPort : member->inputPorts()) {
+              if (!inPort->link()) {
+                continue;
+              }
+              auto* groupPort = inPort->link()->from();
+              if (groupPort->node() != group) {
+                continue;
+              }
+              // Find the upstream port feeding the group's matching input.
+              int idx = group->outputPorts().indexOf(groupPort);
+              pipeline::OutputPort* upstream = nullptr;
+              if (idx >= 0 && idx < group->inputPorts().size()) {
+                auto* groupInput = group->inputPorts()[idx];
+                if (groupInput->link()) {
+                  upstream = groupInput->link()->from();
+                }
+              }
+              p->removeLink(inPort->link());
+              if (upstream) {
+                p->createLink(upstream, inPort);
+              }
+              break;
+            }
+            p->execute();
+          });
+
+  // Context menu on links: delete action
+  m_pipelineStrip->setLinkMenuProvider(
+    [this](pipeline::Link* link, QMenu& menu) {
+      auto* action = menu.addAction("Delete Link", [link]() {
+        auto* p = qobject_cast<pipeline::Pipeline*>(link->parent());
+        if (p) {
+          p->removeLink(link);
+        }
+      });
+      if (pipeline() && pipeline()->isExecuting()) {
+        action->setEnabled(false);
+      }
+    });
+
+  // Context menu on nodes: type-specific actions
+  m_pipelineStrip->setNodeMenuProvider(
+    [this](pipeline::Node* node, QMenu& menu) {
+      auto* p = pipeline();
+      if (!p) {
+        return;
+      }
+      bool locked = p->isExecuting();
+
+      // SinkNode not inside a group: offer "Create Group"
+      auto* sink = qobject_cast<pipeline::SinkNode*>(node);
+      bool inGroup = false;
+      if (sink) {
+        for (auto* inPort : sink->inputPorts()) {
+          if (inPort->link() &&
+              qobject_cast<pipeline::SinkGroupNode*>(
+                inPort->link()->from()->node())) {
+            inGroup = true;
+            break;
+          }
+        }
+      }
+      if (sink && !inGroup) {
+        auto* action = menu.addAction("Create Group", [p, sink]() {
+          // Create a SinkGroupNode with matching port types.
+          auto* group = new pipeline::SinkGroupNode();
+          for (auto* inPort : sink->inputPorts()) {
+            // Use the first accepted type flag as the passthrough type.
+            pipeline::PortType pt = pipeline::PortType::ImageData;
+            for (auto t : pipeline::kAllPortTypes) {
+              if (inPort->acceptedTypes().testFlag(t)) {
+                pt = t;
+                break;
+              }
+            }
+            group->addPassthrough(inPort->name(), pt);
+          }
+          p->addNode(group);
+
+          // Relink: route sink through the group. If the sink had an
+          // upstream connection, break it and reconnect via the group.
+          for (int i = 0; i < sink->inputPorts().size(); ++i) {
+            auto* sinkInput = sink->inputPorts()[i];
+            if (sinkInput->link() && i < group->inputPorts().size()) {
+              auto* upstream = sinkInput->link()->from();
+              p->removeLink(sinkInput->link());
+              p->createLink(upstream, group->inputPorts()[i]);
+            }
+            // Always connect the sink to the group's output.
+            if (i < group->outputPorts().size()) {
+              p->createLink(group->outputPorts()[i], sinkInput);
+            }
+          }
+          p->execute();
+        });
+        if (locked) {
+          action->setEnabled(false);
+        }
+      }
+
+      // Node inside a group: offer "Leave Group"
+      for (auto* inPort : node->inputPorts()) {
+        if (!inPort->link()) {
+          continue;
+        }
+        auto* group = qobject_cast<pipeline::SinkGroupNode*>(
+          inPort->link()->from()->node());
+        if (!group) {
+          continue;
+        }
+        auto* action = menu.addAction("Leave Group", [p, node, group]() {
+          for (auto* inp : node->inputPorts()) {
+            if (!inp->link()) {
+              continue;
+            }
+            auto* groupPort = inp->link()->from();
+            if (groupPort->node() != group) {
+              continue;
+            }
+            int idx = group->outputPorts().indexOf(groupPort);
+            pipeline::OutputPort* upstream = nullptr;
+            if (idx >= 0 && idx < group->inputPorts().size()) {
+              auto* gi = group->inputPorts()[idx];
+              if (gi->link()) {
+                upstream = gi->link()->from();
+              }
+            }
+            p->removeLink(inp->link());
+            if (upstream) {
+              p->createLink(upstream, inp);
+            }
+            break;
+          }
+          p->execute();
+        });
+        if (locked) {
+          action->setEnabled(false);
+        }
+        break;
+      }
+
+      // Delete node
+      auto* deleteAction =
+        menu.addAction("Delete", [p, node]() { p->removeNode(node); });
+      if (locked) {
+        deleteAction->setEnabled(false);
+      }
+    });
+
+  // Context menu on ports: per-port persistence override, grouped
+  // under a "Persistency" submenu so the top-level menu has room for
+  // upcoming port-level actions.
+  m_pipelineStrip->setPortMenuProvider(
+    [this](pipeline::OutputPort* port, QMenu& menu) {
+      if (!port) {
+        return;
+      }
+      auto* p = pipeline();
+      auto* persistencyMenu = menu.addMenu(QStringLiteral("Persistency"));
+      auto addModeAction =
+        [persistencyMenu, port, p](const QString& iconPath,
+                                    const QString& label, bool persistent,
+                                    pipeline::PersistenceMode mode) {
+          auto* action = persistencyMenu->addAction(
+            QIcon(iconPath), label, [port, persistent, mode, p]() {
+              // Enabling persistence: set the medium first so the
+              // single reconcile triggered by setPersistent runs with
+              // the target mode already in place. Disabling: skip the
+              // mode entirely (transient ports ignore it, and setting
+              // it first would trigger an unnecessary InMemory-branch
+              // reload on a port that we're about to evict anyway).
+              if (persistent) {
+                port->setPersistenceMode(mode);
+                port->setPersistent(true);
+              } else {
+                port->setPersistent(false);
+              }
+              // If the user just asked to retain this port's data but
+              // the data was already deallocated (e.g. previously
+              // transient and consumed), the only way to obtain it is
+              // to re-run the producer. Trigger that here at the UI
+              // layer so the pipeline core stays free of policy.
+              if (persistent && p && port->node() &&
+                  !port->hasData()) {
+                p->execute(port->node());
+              }
+            });
+          action->setCheckable(true);
+          // Mark the currently-active mode so the user sees what's set.
+          bool isCurrent =
+            (port->isPersistent() == persistent) &&
+            (!persistent || port->persistenceMode() == mode);
+          action->setChecked(isCurrent);
+        };
+      addModeAction(QStringLiteral(":/pipeline/port_persistent_ram.svg"),
+                    QStringLiteral("Persist in Memory"), true,
+                    pipeline::PersistenceMode::InMemory);
+      addModeAction(QStringLiteral(":/pipeline/port_persistent_disk.svg"),
+                    QStringLiteral("Persist on Disk"), true,
+                    pipeline::PersistenceMode::OnDisk);
+      addModeAction(QStringLiteral(":/pipeline/port_transient.svg"),
+                    QStringLiteral("Transient"), false,
+                    pipeline::PersistenceMode::InMemory);
+    });
+
+  // Sync tip output port from ActiveObjects to the strip widget and colormap
+  connect(&ActiveObjects::instance(),
+          &ActiveObjects::activeTipOutputPortChanged,
+          m_pipelineStrip,
+          &pipeline::PipelineStripWidget::setTipOutputPort);
+  connect(&ActiveObjects::instance(),
+          &ActiveObjects::activeTipOutputPortChanged,
+          this, [this](pipeline::OutputPort* port) {
+            disconnect(m_tipDataChangedConn);
+            disconnect(m_tipMetadataChangedConn);
+            if (port) {
+              m_tipDataChangedConn = connect(
+                port, &pipeline::OutputPort::dataChanged,
+                this, &MainWindow::scheduleColorMapDisplayUpdate);
+              m_tipMetadataChangedConn = connect(
+                port, &pipeline::OutputPort::metadataChanged,
+                this, &MainWindow::scheduleColorMapDisplayUpdate);
+            }
+            updateColorMapDisplay();
+          });
+
+  // Create the single application pipeline
+  initPipeline();
 
   // connect quit.
   connect(m_ui->actionExit, &QAction::triggered, this, &MainWindow::close);
 
-  // Connect up the module/data changed to the appropriate slots.
-  connect(&ActiveObjects::instance(), &ActiveObjects::dataSourceActivated, this,
-          &MainWindow::dataSourceChanged);
-  connect(&ActiveObjects::instance(), &ActiveObjects::moleculeSourceActivated,
-          this, &MainWindow::moleculeSourceChanged);
-  connect(&ActiveObjects::instance(), &ActiveObjects::moduleActivated, this,
-          &MainWindow::moduleChanged);
-  connect(&ActiveObjects::instance(), &ActiveObjects::operatorActivated, this,
-          &MainWindow::operatorChanged);
-  connect(&ActiveObjects::instance(), &ActiveObjects::resultActivated, this,
-          &MainWindow::operatorResultChanged);
+  // Panel switching is now handled by onNodeSelected() / onPortSelected()
+  // which are connected to the PipelineStripWidget signals above.
 
   // Connect the about dialog up too.
   connect(m_ui->actionAbout, &QAction::triggered, this,
@@ -250,12 +634,12 @@ MainWindow::MainWindow(QWidget* parent, Qt::WindowFlags flags)
   auto dataBrokerSaveReaction =
     new DataBrokerSaveReaction(m_ui->actionExportToDataBroker, this);
 
-  // Workflows menu
+  // Sources menu
   auto pyXRFRunner = new PyXRFRunner(this);
-  connect(m_ui->actionPyXRFWorkflow, &QAction::triggered, pyXRFRunner,
+  connect(m_ui->actionPyXRFSource, &QAction::triggered, pyXRFRunner,
           &PyXRFRunner::start);
   auto ptychoRunner = new PtychoRunner(this);
-  connect(m_ui->actionPtychoWorkflow, &QAction::triggered, ptychoRunner,
+  connect(m_ui->actionPtychoSource, &QAction::triggered, ptychoRunner,
           &PtychoRunner::start);
 
   // Build Data Transforms menu
@@ -263,9 +647,10 @@ MainWindow::MainWindow(QWidget* parent, Qt::WindowFlags flags)
 
   // Create the custom transforms menu
   m_customTransformsMenu = new QMenu("Custom Transforms", this);
-  m_customTransformsMenu->setEnabled(false);
   m_ui->menubar->insertMenu(m_ui->menuModules->menuAction(),
                             m_customTransformsMenu);
+  connect(m_customTransformsMenu, &QMenu::aboutToShow, this,
+          [this]() { registerCustomOperators(findCustomOperators()); });
 
   // Create the pipeline templates menu
   m_pipelineTemplates = new QMenu("Pipeline templates", this);
@@ -275,7 +660,6 @@ MainWindow::MainWindow(QWidget* parent, Qt::WindowFlags flags)
   findPipelineTemplates();
 
   // Register our factories for Python wrapping.
-  OperatorProxyFactory::registerWithFactory();
   PipelineProxyFactory::registerWithFactory();
 
   // Build Tomography menu
@@ -292,78 +676,75 @@ MainWindow::MainWindow(QWidget* parent, Qt::WindowFlags flags)
     m_ui->menuTomography->addAction("Set Tilt Angles");
   m_ui->menuTomography->addSeparator();
 
-  QAction* dataProcessingLabel =
-    m_ui->menuTomography->addAction("Pre-processing:");
-  dataProcessingLabel->setEnabled(false);
+  // === Pre-processing submenu ===
+  QMenu* preprocessingMenu = m_ui->menuTomography->addMenu("Pre-processing");
   QAction* downsampleByTwoAction =
-    m_ui->menuTomography->addAction("Bin Tilt Images x2");
+    preprocessingMenu->addAction("Bin Tilt Images x2");
   QAction* removeBadPixelsAction =
-    m_ui->menuTomography->addAction("Remove Bad Pixels");
+    preprocessingMenu->addAction("Remove Bad Pixels");
   QAction* gaussianFilterAction =
-    m_ui->menuTomography->addAction("Gaussian Filter");
+    preprocessingMenu->addAction("Gaussian Filter");
   QAction* autoSubtractBackgroundAction =
-    m_ui->menuTomography->addAction("Background Subtraction (Auto)");
+    preprocessingMenu->addAction("Background Subtraction (Auto)");
   QAction* subtractBackgroundAction =
-    m_ui->menuTomography->addAction("Background Subtraction (Manual)");
+    preprocessingMenu->addAction("Background Subtraction (Manual)");
   QAction* normalizationAction =
-    m_ui->menuTomography->addAction("Normalize Average Image Intensity");
+    preprocessingMenu->addAction("Normalize Average Image Intensity");
   QAction* gradientMagnitude2DSobelAction =
-    m_ui->menuTomography->addAction("2D Gradient Magnitude");
-  QAction* ctfCorrectAction = m_ui->menuTomography->addAction("CTF Correction");
+    preprocessingMenu->addAction("2D Gradient Magnitude");
+  QAction* ctfCorrectAction =
+    preprocessingMenu->addAction("CTF Correction");
 
-  m_ui->menuTomography->addSeparator();
-  QAction* alignmentLabel = m_ui->menuTomography->addAction("Alignment:");
-  alignmentLabel->setEnabled(false);
-  QAction* autoAlignCCAction = m_ui->menuTomography->addAction(
+  // === Alignment submenu ===
+  QMenu* alignmentMenu = m_ui->menuTomography->addMenu("Alignment");
+  QAction* autoAlignCCAction = alignmentMenu->addAction(
     "Image Alignment (Auto: Cross Correlation)");
   QAction* autoAlignCOMAction =
-    m_ui->menuTomography->addAction("Image Alignment (Auto: Center of Mass)");
+    alignmentMenu->addAction("Image Alignment (Auto: Center of Mass)");
   QAction* autoAlignPyStackRegAction =
-    m_ui->menuTomography->addAction("Image Alignment (Auto: PyStackReg)");
+    alignmentMenu->addAction("Image Alignment (Auto: PyStackReg)");
   QAction* alignAction =
-    m_ui->menuTomography->addAction("Image Alignment (Manual)");
+    alignmentMenu->addAction("Image Alignment (Manual)");
+  alignmentMenu->addSeparator();
   QAction* autoRotateAlignAction =
-    m_ui->menuTomography->addAction("Tilt Axis Rotation Alignment (Auto)");
+    alignmentMenu->addAction("Tilt Axis Rotation Alignment (Auto)");
   QAction* autoRotateAlignShiftAction =
-    m_ui->menuTomography->addAction("Tilt Axis Shift Alignment (Auto)");
+    alignmentMenu->addAction("Tilt Axis Shift Alignment (Auto)");
   QAction* rotateAlignAction =
-    m_ui->menuTomography->addAction("Tilt Axis Alignment (Manual)");
+    alignmentMenu->addAction("Tilt Axis Alignment (Manual)");
   QAction* shiftRotationCenterAction =
-    m_ui->menuTomography->addAction("Shift Rotation Center (Manual)");
-  m_ui->menuTomography->addSeparator();
+    alignmentMenu->addAction("Shift Rotation Center (Manual)");
 
-  QAction* reconLabel = m_ui->menuTomography->addAction("Reconstruction:");
-  reconLabel->setEnabled(false);
+  // === Reconstruction submenu ===
+  QMenu* reconstructionMenu = m_ui->menuTomography->addMenu("Reconstruction");
   QAction* reconDFMAction =
-    m_ui->menuTomography->addAction("Direct Fourier Method");
+    reconstructionMenu->addAction("Direct Fourier Method");
   QAction* reconWBPAction =
-    m_ui->menuTomography->addAction("Weighted Back Projection");
+    reconstructionMenu->addAction("Weighted Back Projection");
   QAction* reconWBP_CAction =
-    m_ui->menuTomography->addAction("Simple Back Projection (C++)");
-  QAction* reconARTAction =
-    m_ui->menuTomography->addAction("Algebraic Reconstruction Technique (ART)");
-  QAction* reconSIRTAction = m_ui->menuTomography->addAction(
+    reconstructionMenu->addAction("Simple Back Projection (C++)");
+  QAction* reconARTAction = reconstructionMenu->addAction(
+    "Algebraic Reconstruction Technique (ART)");
+  QAction* reconSIRTAction = reconstructionMenu->addAction(
     "Simultaneous Iterative Recon. Technique (SIRT)");
   QAction* reconDFMConstraintAction =
-    m_ui->menuTomography->addAction("Constraint-based Direct Fourier Method");
+    reconstructionMenu->addAction("Constraint-based Direct Fourier Method");
   QAction* reconTVMinimizationAction =
-    m_ui->menuTomography->addAction("TV Minimization Method");
+    reconstructionMenu->addAction("TV Minimization Method");
   QAction* reconTomoPyGridRecAction =
-    m_ui->menuTomography->addAction("TomoPy Reconstruction");
-  m_ui->menuTomography->addSeparator();
+    reconstructionMenu->addAction("TomoPy Reconstruction");
 
-  QAction* simulationLabel =
-    m_ui->menuTomography->addAction("Simulation and Demonstrations:");
-  simulationLabel->setEnabled(false);
+  // === Simulation submenu ===
+  QMenu* simulationMenu =
+    m_ui->menuTomography->addMenu("Simulation && Demonstrations");
   QAction* generateTiltSeriesAction =
-    m_ui->menuTomography->addAction("Project Tilt Series from Volume");
-
+    simulationMenu->addAction("Project Tilt Series from Volume");
   QAction* randomShiftsAction =
-    m_ui->menuTomography->addAction("Shift Tilt Series Randomly");
+    simulationMenu->addAction("Shift Tilt Series Randomly");
   QAction* reconRealTimeAction =
-    m_ui->menuTomography->addAction("Initialize Real-Time Tomography");
+    simulationMenu->addAction("Initialize Real-Time Tomography");
   QAction* addPoissonNoiseAction =
-    m_ui->menuTomography->addAction("Add Poisson Noise");
+    simulationMenu->addAction("Add Poisson Noise");
 
   // Set up reactions for Tomography Menu
   //#################################################################
@@ -374,120 +755,158 @@ MainWindow::MainWindow(QWidget* parent, Qt::WindowFlags flags)
 
   new AddPythonTransformReaction(
     generateTiltSeriesAction, "Generate Tilt Series",
-    readInPythonScript("GenerateTiltSeries"), false, true, false,
+    readInPythonScript("GenerateTiltSeries"),
     readInJSONDescription("GenerateTiltSeries"));
 
   new AddAlignReaction(alignAction);
   new AddPythonTransformReaction(downsampleByTwoAction, "Bin Tilt Image x2",
-                                 readInPythonScript("BinTiltSeriesByTwo"),
-                                 false, false, false);
+                                 readInPythonScript("BinTiltSeriesByTwo"));
   new AddPythonTransformReaction(
     removeBadPixelsAction, "Remove Bad Pixels",
-    readInPythonScript("RemoveBadPixelsTiltSeries"), false, false, false);
+    readInPythonScript("RemoveBadPixelsTiltSeries"));
   new AddPythonTransformReaction(
     gaussianFilterAction, "Gaussian Filter Tilt Series",
-    readInPythonScript("GaussianFilterTiltSeries"), false, false, false,
+    readInPythonScript("GaussianFilterTiltSeries"),
     readInJSONDescription("GaussianFilterTiltSeries"));
   new AddPythonTransformReaction(
     autoSubtractBackgroundAction, "Background Subtraction (Auto)",
-    readInPythonScript("Subtract_TiltSer_Background_Auto"), false, false,
-    false);
+    readInPythonScript("Subtract_TiltSer_Background_Auto"));
   new AddPythonTransformReaction(
     subtractBackgroundAction, "Background Subtraction (Manual)",
-    readInPythonScript("Subtract_TiltSer_Background"), false, false, false);
+    readInPythonScript("Subtract_TiltSer_Background"));
   new AddPythonTransformReaction(normalizationAction, "Normalize Tilt Series",
-                                 readInPythonScript("NormalizeTiltSeries"),
-                                 false, false, false);
+                                 readInPythonScript("NormalizeTiltSeries"));
   new AddPythonTransformReaction(
     gradientMagnitude2DSobelAction, "Gradient Magnitude 2D",
-    readInPythonScript("GradientMagnitude2D_Sobel"), false, false, false);
+    readInPythonScript("GradientMagnitude2D_Sobel"));
   new AddPythonTransformReaction(ctfCorrectAction, "CTF Correction",
-                                 readInPythonScript("ctf_correct"), true, false,
-                                 false, readInJSONDescription("ctf_correct"));
+                                 readInPythonScript("ctf_correct"),
+                                 readInJSONDescription("ctf_correct"));
   new AddPythonTransformReaction(
     rotateAlignAction, "Tilt Axis Alignment (manual)",
-    readInPythonScript("RotationAlign"), true, false, false,
+    readInPythonScript("RotationAlign"),
     readInJSONDescription("RotationAlign"));
   new AddPythonTransformReaction(
     autoRotateAlignAction, "Auto Tilt Axis Align",
-    readInPythonScript("AutoTiltAxisRotationAlignment"), true, false, false,
+    readInPythonScript("AutoTiltAxisRotationAlignment"),
     readInJSONDescription("AutoTiltAxisRotationAlignment"));
   new AddPythonTransformReaction(
     autoRotateAlignShiftAction, "Auto Tilt Axis Shift Align",
-    readInPythonScript("AutoTiltAxisShiftAlignment"), true, false, false,
+    readInPythonScript("AutoTiltAxisShiftAlignment"),
     readInJSONDescription("AutoTiltAxisShiftAlignment"));
 
   new AddPythonTransformReaction(
     autoAlignCCAction, "Auto Tilt Image Align (XCORR)",
-    readInPythonScript("AutoCrossCorrelationTiltImageAlignment"), false, false,
-    false, readInJSONDescription("AutoCrossCorrelationTiltImageAlignment"));
+    readInPythonScript("AutoCrossCorrelationTiltImageAlignment"),
+    readInJSONDescription("AutoCrossCorrelationTiltImageAlignment"));
   new AddPythonTransformReaction(
     autoAlignCOMAction, "Auto Tilt Image Align (CoM)",
-    readInPythonScript("AutoCenterOfMassTiltImageAlignment"), false, false,
-    false, readInJSONDescription("AutoCenterOfMassTiltImageAlignment"));
+    readInPythonScript("AutoCenterOfMassTiltImageAlignment"),
+    readInJSONDescription("AutoCenterOfMassTiltImageAlignment"));
   new AddPythonTransformReaction(
     autoAlignPyStackRegAction, "Auto Tilt Image Align (PyStackReg)",
-    readInPythonScript("PyStackRegImageAlignment"), false, false,
-    false, readInJSONDescription("PyStackRegImageAlignment"));
+    readInPythonScript("PyStackRegImageAlignment"),
+    readInJSONDescription("PyStackRegImageAlignment"));
   new AddPythonTransformReaction(
     shiftRotationCenterAction, "Shift Rotation Center",
-    readInPythonScript("ShiftRotationCenter_tomopy"), true, false, false,
+    readInPythonScript("ShiftRotationCenter_tomopy"),
     readInJSONDescription("ShiftRotationCenter_tomopy"));
 
   new AddPythonTransformReaction(reconDFMAction, "Reconstruct (Direct Fourier)",
-                                 readInPythonScript("Recon_DFT"), true, false,
-                                 false, readInJSONDescription("Recon_DFT"));
+                                 readInPythonScript("Recon_DFT"),
+                                 readInJSONDescription("Recon_DFT"));
   new AddPythonTransformReaction(reconWBPAction,
                                  "Reconstruct (Back Projection)",
-                                 readInPythonScript("Recon_WBP"), true, false,
-                                 false, readInJSONDescription("Recon_WBP"));
+                                 readInPythonScript("Recon_WBP"),
+                                 readInJSONDescription("Recon_WBP"));
   new AddPythonTransformReaction(reconARTAction, "Reconstruct (ART)",
-                                 readInPythonScript("Recon_ART"), true, false,
-                                 false, readInJSONDescription("Recon_ART"));
+                                 readInPythonScript("Recon_ART"),
+                                 readInJSONDescription("Recon_ART"));
   new AddPythonTransformReaction(reconSIRTAction, "Reconstruct (SIRT)",
-                                 readInPythonScript("Recon_SIRT"), true, false,
-                                 false, readInJSONDescription("Recon_SIRT"));
+                                 readInPythonScript("Recon_SIRT"),
+                                 readInJSONDescription("Recon_SIRT"));
   new AddPythonTransformReaction(
     reconDFMConstraintAction, "Reconstruct (Constraint-based Direct Fourier)",
-    readInPythonScript("Recon_DFT_constraint"), true, false, false,
+    readInPythonScript("Recon_DFT_constraint"),
     readInJSONDescription("Recon_DFT_constraint"));
   new AddPythonTransformReaction(
     reconTVMinimizationAction, "Reconstruct (TV Minimization)",
-    readInPythonScript("Recon_TV_minimization"), true, false, false,
+    readInPythonScript("Recon_TV_minimization"),
     readInJSONDescription("Recon_TV_minimization"));
   new AddPythonTransformReaction(
     reconTomoPyGridRecAction, "Reconstruct (TomoPy)",
-    readInPythonScript("Recon_tomopy"), true, false, false,
+    readInPythonScript("Recon_tomopy"),
     readInJSONDescription("Recon_tomopy"));
 
   new ReconstructionReaction(reconWBP_CAction);
 
   new AddPythonTransformReaction(
     randomShiftsAction, "Shift Tilt Series Randomly",
-    readInPythonScript("ShiftTiltSeriesRandomly"), true, false, false,
+    readInPythonScript("ShiftTiltSeriesRandomly"),
     readInJSONDescription("ShiftTiltSeriesRandomly"));
   new AddPythonTransformReaction(
     reconRealTimeAction, "Initialize Real-Time Tomography",
-    readInPythonScript("Recon_real_time_tomography"), true, false, false,
+    readInPythonScript("Recon_real_time_tomography"),
     readInJSONDescription("Recon_real_time_tomography"));
   new AddPythonTransformReaction(addPoissonNoiseAction, "Add Poisson Noise",
-                                 readInPythonScript("AddPoissonNoise"), true,
-                                 false, false,
+                                 readInPythonScript("AddPoissonNoise"),
                                  readInJSONDescription("AddPoissonNoise"));
 
   //#################################################################
-  new ModuleMenu(m_ui->modulesToolbar, m_ui->menuModules, this);
+
+  // Set up operator search dialog
+  m_operatorSearchDialog = new OperatorSearchDialog(this);
+  m_operatorSearchDialog->collectActionsFromMenu(m_ui->menuData,
+                                                 "Data Transforms");
+  m_operatorSearchDialog->collectActionsFromMenu(m_ui->menuSegmentation,
+                                                 "Segmentation");
+  m_operatorSearchDialog->collectActionsFromMenu(m_ui->menuTomography,
+                                                 "Tomography");
+
+  // Add "Search Operators..." to each operator menu (like ParaView does for
+  // Sources, Filters, and Extractors)
+  auto showSearch = [this]() {
+    m_operatorSearchDialog->show();
+    m_operatorSearchDialog->raise();
+    m_operatorSearchDialog->activateWindow();
+  };
+
+  for (auto* menu :
+       { m_ui->menuData, m_ui->menuSegmentation, m_ui->menuTomography }) {
+    // Show "Ctrl+Space" text on all three, but don't set a real shortcut
+    // to avoid ambiguity. The global shortcut below handles the actual key.
+    auto* searchAction = new QAction("Search Operators...", menu);
+    searchAction->setShortcut(QKeySequence("Ctrl+Space"));
+    searchAction->setShortcutContext(Qt::WidgetShortcut);
+    connect(searchAction, &QAction::triggered, this, showSearch);
+    QAction* firstAction = menu->actions().isEmpty() ? nullptr
+                                                     : menu->actions().first();
+    menu->insertAction(firstAction, searchAction);
+    menu->insertSeparator(firstAction);
+  }
+
+  // Global shortcut for Ctrl+Space to open the search dialog
+  auto* globalSearchShortcut = new QShortcut(QKeySequence("Ctrl+Space"), this);
+  connect(globalSearchShortcut, &QShortcut::activated, this, showSearch);
+
+  new PipelineModuleMenu(m_ui->modulesToolbar, m_ui->menuModules, this);
   new RecentFilesMenu(*m_ui->menuRecentlyOpened, m_ui->menuRecentlyOpened);
 
   new SaveDataReaction(m_ui->actionSaveData);
   new SaveScreenshotReaction(m_ui->actionSaveScreenshot, this);
   new pqSaveAnimationReaction(m_ui->actionSaveMovie);
-  new SaveWebReaction(m_ui->actionSaveWeb, this);
+  // FIXME: staged for removal
+  m_ui->actionSaveWeb->setVisible(false);
 
   new SaveLoadStateReaction(m_ui->actionLoadState, /*load*/ true);
   new SaveLoadStateReaction(m_ui->actionSaveStateAs);
   connect(m_ui->actionSaveState, &QAction::triggered, this,
           &MainWindow::saveState);
+
+  connect(m_ui->actionLoadTemplate, &QAction::triggered, this,
+          []() { SaveLoadTemplateReaction::loadTemplateWithDialog(); });
+  connect(m_ui->actionSaveTemplateAs, &QAction::triggered, this,
+          []() { SaveLoadTemplateReaction::saveTemplateAs(); });
 
   auto reaction = new ResetReaction(m_ui->actionReset);
   connect(m_ui->menu_File, &QMenu::aboutToShow, reaction,
@@ -514,16 +933,19 @@ MainWindow::MainWindow(QWidget* parent, Qt::WindowFlags flags)
 #endif
   QAction* constantDataAction =
     sampleDataMenu->addAction("Generate Constant Dataset");
-  new PythonGeneratedDatasetReaction(constantDataAction, "Constant Dataset",
-                                     readInPythonScript("ConstantDataset"));
+  new AddPythonSourceReaction(constantDataAction,
+                              readInPythonScript("ConstantDataset"),
+                              readInJSONDescription("ConstantDataset"));
   QAction* randomParticlesAction =
     sampleDataMenu->addAction("Generate Random Particles");
-  new PythonGeneratedDatasetReaction(randomParticlesAction, "Random Particles",
-                                     readInPythonScript("RandomParticles"));
+  new AddPythonSourceReaction(randomParticlesAction,
+                              readInPythonScript("RandomParticles"),
+                              readInJSONDescription("RandomParticles"));
   QAction* probeShapeAction =
     sampleDataMenu->addAction("Generate Electron Beam Shape");
-  new PythonGeneratedDatasetReaction(probeShapeAction, "Electron Beam Shape",
-                                     readInPythonScript("STEM_probe"));
+  new AddPythonSourceReaction(probeShapeAction,
+                              readInPythonScript("STEM_probe"),
+                              readInJSONDescription("STEM_probe"));
   sampleDataMenu->addSeparator();
   QAction* sampleDataLinkAction =
     sampleDataMenu->addAction("Download More Datasets");
@@ -543,8 +965,6 @@ MainWindow::MainWindow(QWidget* parent, Qt::WindowFlags flags)
   AxesReaction::addAllActionsToToolBar(m_ui->utilitiesToolbar);
 
   ResetReaction::reset();
-  // Initialize worker manager
-  new ProgressDialogManager(this);
 
   // Add the acquisition client experimentally.
   m_ui->actionAcquisition->setEnabled(false);
@@ -561,64 +981,70 @@ MainWindow::MainWindow(QWidget* parent, Qt::WindowFlags flags)
     openDialog<PassiveAcquisitionWidget>(&m_passiveAcquisitionDialog);
   });
 
-  auto pipelineSettingsDialog = new PipelineSettingsDialog(this);
-  connect(m_ui->actionPipelineSettings, &QAction::triggered,
-          pipelineSettingsDialog, &QWidget::show);
-
   // Prepopulate the previously seen python readers/writers
   // This operation is fast since it fetches the readers description
   // from the settings, without really invoking python
   FileFormatManager::instance().prepopulatePythonReaders();
   FileFormatManager::instance().prepopulatePythonWriters();
 
-  // Async initialize python
-  statusBar()->showMessage("Initializing python...");
-  auto pythonWatcher = new QFutureWatcher<std::vector<OperatorDescription>>;
-  connect(pythonWatcher, &QFutureWatcherBase::finished, this,
-          [this, pyXRFRunner, ptychoRunner, pythonWatcher, dataBrokerSaveReaction]() {
-            m_ui->actionAcquisition->setEnabled(true);
-            m_ui->actionPassiveAcquisition->setEnabled(true);
-            registerCustomOperators(pythonWatcher->result());
-            // Check if we have DataBroker and enable menu if we do
-            auto dataBroker = new DataBroker(this);
-            m_ui->actionImportFromDataBroker->setEnabled(
-              dataBroker->installed());
-            m_ui->actionExportToDataBroker->setEnabled(
-              dataBroker->installed() &&
-              ActiveObjects::instance().activeDataSource() != nullptr);
-            dataBrokerSaveReaction->setDataBrokerInstalled(
-              dataBroker->installed());
-            dataBroker->deleteLater();
+  // Initialize python synchronously (splash screen stays up until done)
+  auto operators = initPython();
 
-            bool installed = pyXRFRunner->isInstalled();
-            m_ui->actionPyXRFWorkflow->setEnabled(installed);
-            if (!installed) {
-              // Grab the import error and show it in the tooltip
-              QString tooltip = "Failed to import required modules. "
-                                "Error message was:\n\n" +
-                                pyXRFRunner->importError();
-              m_ui->actionPyXRFWorkflow->setToolTip(tooltip);
-            }
+  m_ui->actionAcquisition->setEnabled(true);
+  m_ui->actionPassiveAcquisition->setEnabled(true);
+  registerCustomOperators(operators);
 
-            installed = ptychoRunner->isInstalled();
-            m_ui->actionPtychoWorkflow->setEnabled(installed);
-            if (!installed) {
-              // Grab the import error and show it in the tooltip
-              QString tooltip = "Failed to import required modules. "
-                                "Error message was:\n\n" +
-                                ptychoRunner->importError();
-              m_ui->actionPtychoWorkflow->setToolTip(tooltip);
-            }
+  auto dataBroker = new DataBroker(this);
+  m_ui->actionImportFromDataBroker->setEnabled(dataBroker->installed());
+  m_ui->actionExportToDataBroker->setEnabled(
+    dataBroker->installed() &&
+    ActiveObjects::instance().activeNode() != nullptr);
+  dataBrokerSaveReaction->setDataBrokerInstalled(dataBroker->installed());
+  dataBroker->deleteLater();
 
-            delete pythonWatcher;
-            statusBar()->showMessage("Initialization complete", 1500);
-          });
+  {
+    bool installed = pyXRFRunner->isInstalled();
+    m_ui->actionPyXRFSource->setEnabled(installed);
+    if (!installed) {
+      QString tooltip = "Failed to import required modules. "
+                        "Error message was:\n\n" +
+                        pyXRFRunner->importError();
+      m_ui->actionPyXRFSource->setToolTip(tooltip);
+    }
+  }
 
-  auto pythonFuture = QtConcurrent::run(initPython);
-  pythonWatcher->setFuture(pythonFuture);
+  {
+    bool installed = ptychoRunner->isInstalled();
+    m_ui->actionPtychoSource->setEnabled(installed);
+    if (!installed) {
+      QString tooltip = "Failed to import required modules. "
+                        "Error message was:\n\n" +
+                        ptychoRunner->importError();
+      m_ui->actionPtychoSource->setToolTip(tooltip);
+    }
+  }
 
-  // Add plugin dock widgets when a plugin is loaded
+  // Snapshot existing dock widgets before loading plugin dock widgets
+  auto currentDocks = findChildren<QDockWidget*>();
+  QSet<QDockWidget*> existingDocks(currentDocks.begin(), currentDocks.end());
+
+  // Add plugin dock widgets when a plugin is loaded.
   new pqPluginDockWidgetsBehavior(this);
+
+  // On first launch (no saved window state), ParaView plugin dock widgets
+  // (e.g., Node Editor) appear visible by default. Hide any that were added
+  // by plugins. pqPersistentMainWindowStateBehavior will restore their
+  // visibility on subsequent launches if the user opened them.
+  QTimer::singleShot(0, this, [this, existingDocks]() {
+    QSettings* settings = pqApplicationCore::instance()->settings();
+    if (!settings->contains("MainWindow/Geometry")) {
+      for (auto* dock : findChildren<QDockWidget*>()) {
+        if (!existingDocks.contains(dock)) {
+          dock->hide();
+        }
+      }
+    }
+  });
 }
 
 MainWindow::~MainWindow()
@@ -737,102 +1163,7 @@ void MainWindow::openVisIntro()
   openUrl(link);
 }
 
-void MainWindow::dataSourceChanged(DataSource* dataSource)
-{
-  m_ui->propertiesPanelStackedWidget->setCurrentWidget(
-    m_ui->dataPropertiesScrollArea);
-  if (dataSource) {
-    bool canAdd = !dataSource->pipeline()->editingOperators();
-    m_ui->menuData->setEnabled(canAdd);
-    m_ui->menuSegmentation->setEnabled(canAdd);
-    m_ui->menuTomography->setEnabled(canAdd);
-    m_customTransformsMenu->setEnabled(canAdd);
-    foreach(QAction* action, m_pipelineTemplates->actions()) {
-      action->setEnabled(canAdd);
-    }
-  }
-}
-
-void MainWindow::moleculeSourceChanged(MoleculeSource*)
-{
-  m_ui->propertiesPanelStackedWidget->setCurrentWidget(
-    m_ui->moleculePropertiesScrollArea);
-}
-
-void MainWindow::moduleChanged(Module*)
-{
-  m_ui->propertiesPanelStackedWidget->setCurrentWidget(
-    m_ui->modulePropertiesScrollArea);
-}
-
-void MainWindow::operatorChanged(Operator*)
-{
-  m_ui->propertiesPanelStackedWidget->setCurrentWidget(
-    m_ui->operatorPropertiesScrollArea);
-}
-
-void MainWindow::operatorResultChanged(OperatorResult* res)
-{
-  if (res) {
-    m_ui->propertiesPanelStackedWidget->setCurrentWidget(
-      m_ui->operatorResultPropertiesScrollArea);
-  }
-}
-
-void MainWindow::importCustomTransform()
-{
-  QStringList filters;
-  filters << "Python (*.py)";
-
-  QFileDialog dialog(this);
-  dialog.setFileMode(QFileDialog::ExistingFile);
-  dialog.setNameFilters(filters);
-  dialog.setObjectName("ImportCustomTransform-tomviz");
-  dialog.setAcceptMode(QFileDialog::AcceptOpen);
-
-  if (dialog.exec() == QDialog::Accepted) {
-    QStringList filePaths = dialog.selectedFiles();
-    QString format = dialog.selectedNameFilter();
-    QFileInfo fileInfo(filePaths[0]);
-    QString filePath = fileInfo.absolutePath();
-    QString fileBaseName = fileInfo.baseName();
-    QString pythonSourcePath = QString("%1%2%3.py")
-                                 .arg(filePath)
-                                 .arg(QDir::separator())
-                                 .arg(fileBaseName);
-    QString jsonSourcePath = QString("%1%2%3.json")
-                               .arg(filePath)
-                               .arg(QDir::separator())
-                               .arg(fileBaseName);
-
-    // Get the path to Tomviz
-    QString path = tomviz::userDataPath();
-    if (path.isEmpty()) {
-      return;
-    }
-
-    // Copy the Python file to the tomviz directory if it exists
-    QFileInfo pythonFileInfo(pythonSourcePath);
-    if (pythonFileInfo.exists()) {
-      QString pythonDestPath =
-        QString("%1%2%3.py").arg(path).arg(QDir::separator()).arg(fileBaseName);
-      QFile::copy(pythonSourcePath, pythonDestPath);
-
-      // Copy the JSON file if it exists.
-      QFileInfo jsonFileInfo(jsonSourcePath);
-      if (jsonFileInfo.exists()) {
-        QString jsonDestPath = QString("%1%2%3.json")
-                                 .arg(path)
-                                 .arg(QDir::separator())
-                                 .arg(fileBaseName);
-        QFile::copy(jsonSourcePath, jsonDestPath);
-      }
-
-      // Register custom operators again.
-      registerCustomOperators(findCustomOperators());
-    }
-  }
-}
+// Panel switching is now handled by onNodeSelected() / onPortSelected()
 
 void MainWindow::showEvent(QShowEvent* e)
 {
@@ -841,6 +1172,30 @@ void MainWindow::showEvent(QShowEvent* e)
     m_isFirstShow = false;
     QTimer::singleShot(1, this, &MainWindow::onFirstWindowShow);
   }
+}
+
+void MainWindow::dragEnterEvent(QDragEnterEvent* e)
+{
+  if (e->mimeData()->hasUrls()) {
+    e->acceptProposedAction();
+  }
+}
+
+void MainWindow::dropEvent(QDropEvent* e)
+{
+  for (const auto& url : e->mimeData()->urls()) {
+    if (!url.isLocalFile()) {
+      continue;
+    }
+    QString path = url.toLocalFile();
+    QString suffix = QFileInfo(path).suffix().toLower();
+    if (suffix == "tvsm" || suffix == "tvh5") {
+      SaveLoadStateReaction::loadState(path);
+    } else {
+      LoadDataReaction::loadData(path);
+    }
+  }
+  e->acceptProposedAction();
 }
 
 void MainWindow::closeEvent(QCloseEvent* e)
@@ -1032,79 +1387,104 @@ void MainWindow::handleMessage(const QString&, int type)
 void MainWindow::registerCustomOperators(
   std::vector<OperatorDescription> operators)
 {
-  // Always create the Custom Transforms menu so that it is possible to import
-  // new operators.
   m_customTransformsMenu->clear();
 
-  QAction* importCustomTransformAction =
-    m_customTransformsMenu->addAction("Import Custom Transform...");
-  m_customTransformsMenu->addSeparator();
-  connect(importCustomTransformAction, &QAction::triggered, this,
-          &MainWindow::importCustomTransform);
-
-  if (!operators.empty()) {
-    for (const OperatorDescription& op : operators) {
-      QAction* action = m_customTransformsMenu->addAction(op.label);
-      action->setEnabled(op.valid);
-      if (!op.loadError.isNull()) {
-        qWarning().noquote()
-          << QString("An error occurred trying to load an operator from '%1':")
-               .arg(op.pythonPath);
-        qWarning().noquote() << op.loadError;
-        continue;
-      } else if (!op.valid) {
-        qWarning().noquote()
-          << QString("'%1' doesn't contain a valid operator definition.")
-               .arg(op.pythonPath);
-        continue;
-      }
-
-      QString source;
-      QString json;
-      // Read the Python source
-      QFile pythonFile(op.pythonPath);
-      if (pythonFile.open(QIODevice::ReadOnly)) {
-        source = pythonFile.readAll();
-      } else {
-        qCritical() << QString("Unable to read '%1'.").arg(op.pythonPath);
-      }
-      // Read the JSON if we have any
-      if (!op.jsonPath.isNull()) {
-        QFile jsonFile(op.jsonPath);
-        if (jsonFile.open(QIODevice::ReadOnly)) {
-          json = jsonFile.readAll();
-        } else {
-          qCritical() << QString("Unable to read '%1'.").arg(op.jsonPath);
-        }
-      }
-      new AddPythonTransformReaction(action, op.label, source, false, false,
-                                     false, json);
+  std::vector<const OperatorDescription*> sources;
+  std::vector<const OperatorDescription*> transforms;
+  for (const auto& op : operators) {
+    if (op.type == OperatorDescription::Type::Source) {
+      sources.push_back(&op);
+    } else {
+      transforms.push_back(&op);
     }
   }
-  m_customTransformsMenu->setEnabled(true);
+
+  auto addEntry = [this](const OperatorDescription& op) {
+    QAction* action = m_customTransformsMenu->addAction(op.label);
+    action->setEnabled(op.valid);
+    if (!op.loadError.isNull()) {
+      qWarning().noquote()
+        << QString("An error occurred trying to load an operator from '%1':")
+             .arg(op.pythonPath);
+      qWarning().noquote() << op.loadError;
+      return;
+    } else if (!op.valid) {
+      qWarning().noquote()
+        << QString("'%1' doesn't contain a valid operator definition.")
+             .arg(op.pythonPath);
+      return;
+    }
+
+    QString source;
+    QString json;
+    QFile pythonFile(op.pythonPath);
+    if (pythonFile.open(QIODevice::ReadOnly)) {
+      source = pythonFile.readAll();
+    } else {
+      qCritical() << QString("Unable to read '%1'.").arg(op.pythonPath);
+    }
+    if (!op.jsonPath.isNull()) {
+      QFile jsonFile(op.jsonPath);
+      if (jsonFile.open(QIODevice::ReadOnly)) {
+        json = jsonFile.readAll();
+      } else {
+        qCritical() << QString("Unable to read '%1'.").arg(op.jsonPath);
+      }
+    }
+
+    if (op.type == OperatorDescription::Type::Source) {
+      new AddPythonSourceReaction(action, source, json);
+    } else {
+      new AddPythonTransformReaction(action, op.label, source, json);
+    }
+  };
+
+  if (!sources.empty()) {
+    m_customTransformsMenu->addSection("Sources");
+    for (const auto* op : sources) {
+      addEntry(*op);
+    }
+  }
+  if (!transforms.empty()) {
+    m_customTransformsMenu->addSection("Transforms");
+    for (const auto* op : transforms) {
+      addEntry(*op);
+    }
+  }
 }
 
 std::vector<OperatorDescription> MainWindow::findCustomOperators()
 {
   QStringList paths;
-  // Search in <home>/.tomviz
-  foreach (QString home,
-           QStandardPaths::standardLocations(QStandardPaths::HomeLocation)) {
-    QString path = QString("%1%2.tomviz").arg(home).arg(QDir::separator());
-    if (QFile(path).exists()) {
-      paths.append(path);
+  QByteArray envOverride = qgetenv("TOMVIZ_CUSTOM_TRANSFORMS_PATH");
+  if (!envOverride.isEmpty()) {
+    for (const QString& path : QString::fromLocal8Bit(envOverride)
+                                 .split(QDir::listSeparator(),
+                                        Qt::SkipEmptyParts)) {
+      if (QFileInfo(path).isDir()) {
+        paths.append(path);
+      }
     }
-    path = QString("%1%2tomviz").arg(home).arg(QDir::separator());
-    if (QFile(path).exists()) {
-      paths.append(path);
+  } else {
+    // Search in <home>/.tomviz
+    foreach (QString home,
+             QStandardPaths::standardLocations(QStandardPaths::HomeLocation)) {
+      QString path = QString("%1%2.tomviz").arg(home).arg(QDir::separator());
+      if (QFile(path).exists()) {
+        paths.append(path);
+      }
+      path = QString("%1%2tomviz").arg(home).arg(QDir::separator());
+      if (QFile(path).exists()) {
+        paths.append(path);
+      }
     }
-  }
-  // Search in data locations.
-  // For example on window C:/Users/<USER>/AppData/Local/tomviz
-  for (QString path:
-           QStandardPaths::standardLocations(QStandardPaths::AppDataLocation)) {
-    if (QFile(path).exists()) {
-      paths.append(path);
+    // Search in data locations.
+    // For example on window C:/Users/<USER>/AppData/Local/tomviz
+    for (QString path :
+         QStandardPaths::standardLocations(QStandardPaths::AppDataLocation)) {
+      if (QFile(path).exists()) {
+        paths.append(path);
+      }
     }
   }
 
@@ -1164,21 +1544,30 @@ void MainWindow::syncPythonToApp()
 void MainWindow::findPipelineTemplates() {
   m_pipelineTemplates->clear();
 
-  // Look in 'share' directory for default templates
-  QDir provided (QApplication::applicationDirPath() + "/../share/tomviz/templates/");
-  // Look for user created templates
-  QDir created (tomviz::userDataPath() + "/templates");
+  // Always include the bundled 'share' directory.
+  QList<QDir> locations;
+  locations.append(QDir(QApplication::applicationDirPath() +
+                        "/../share/tomviz/templates/"));
 
-  QList<QDir> locations = { provided, created };
+  QByteArray envOverride = qgetenv("TOMVIZ_PIPELINE_TEMPLATES_PATH");
+  if (!envOverride.isEmpty()) {
+    for (const QString& path : QString::fromLocal8Bit(envOverride)
+                                 .split(QDir::listSeparator(),
+                                        Qt::SkipEmptyParts)) {
+      if (QFileInfo(path).isDir()) {
+        locations.append(QDir(path));
+      }
+    }
+  } else {
+    locations.append(QDir(tomviz::userDataPath() + "/templates"));
+  }
+
   foreach (QDir dir, locations) {
     foreach (QFileInfo file, dir.entryInfoList()) {
-      QString menuName = file.completeBaseName().replace("_", " ");
-      if (file.isFile()) {
+      if (file.isFile() && file.suffix() == "tvsm") {
+        QString menuName = file.completeBaseName().replace("_", " ");
         QAction* action = m_pipelineTemplates->addAction(menuName);
-        new SaveLoadTemplateReaction(action, true, file.completeBaseName());
-        if (!ModuleManager::instance().hasDataSources()) {
-          action->setEnabled(false);
-        }
+        new SaveLoadTemplateReaction(action, true, file.absoluteFilePath());
       }
     }
   }
@@ -1186,6 +1575,409 @@ void MainWindow::findPipelineTemplates() {
   QAction* actionSaveTemplate = m_pipelineTemplates->addAction("Save Template");
   new SaveLoadTemplateReaction(actionSaveTemplate);
   connect(actionSaveTemplate, &QAction::triggered, this, &MainWindow::findPipelineTemplates);
+}
+
+void MainWindow::initPipeline()
+{
+  auto* p = new pipeline::Pipeline(this);
+  p->setExecutor(new pipeline::ThreadedExecutor(p));
+  m_pipeline = p;
+  m_pipelineStrip->setPipeline(p);
+  m_pipelineControls->setPipeline(p);
+  ActiveObjects::instance().setPipeline(p);
+  m_progressDialogManager = new ProgressDialogManager(this);
+  m_progressDialogManager->setPipeline(p);
+
+  // Wire renderNeeded() → pqView::render() for all sink nodes.
+  // pqView::render() coalesces multiple calls via an internal timer
+  // (pqView.h: "Multiple calls are collapsed into one."), matching the old
+  // Module → ModuleManager::render() → pqView::render() pattern.
+  auto connectSinkRender = [](pipeline::Node* node) {
+    auto* sink = dynamic_cast<pipeline::LegacyModuleSink*>(node);
+    if (sink && sink->view()) {
+      auto* pqview = tomviz::convert<pqView*>(sink->view());
+      if (pqview) {
+        connect(sink, &pipeline::LegacyModuleSink::renderNeeded,
+                pqview, &pqView::render);
+      }
+    }
+  };
+  connect(p, &pipeline::Pipeline::nodeAdded, this, connectSinkRender);
+
+  // Render all views when a port pushes intermediate data (live updates).
+  connect(p, &pipeline::Pipeline::nodeAdded, this,
+          [](pipeline::Node* node) {
+            for (auto* port : node->outputPorts()) {
+              connect(port, &pipeline::OutputPort::intermediateDataApplied,
+                      []() { pqApplicationCore::instance()->render(); });
+            }
+          });
+
+  // Initialize/rescale color maps on intermediate updates so the
+  // volume renders correctly during the first execution and across
+  // re-runs. Safe under setIntermediateData's BQC — the worker is
+  // paused while we mutate SM proxies. Sink-side rebinding is in
+  // LegacyModuleSink::postConsume.
+  connect(p, &pipeline::Pipeline::nodeAdded, this,
+          [this](pipeline::Node* node) {
+            for (auto* port : node->outputPorts()) {
+              if (!pipeline::isVolumeType(port->type())) {
+                continue;
+              }
+              connect(port, &pipeline::OutputPort::intermediateDataApplied,
+                      this, [this, node, port]() {
+                        if (ensureColorMapForPort(node, port)) {
+                          updateColorMapDisplay();
+                        }
+                      });
+            }
+          });
+
+  // Select newly added nodes so the tip output port updates
+  connect(p, &pipeline::Pipeline::nodeAdded, this,
+          &MainWindow::onNodeSelected);
+
+  // Per-node rescale of existing color maps. Uses cached VTK objects
+  // (not SM proxy creation), so safe while the worker thread is still
+  // running subsequent nodes.
+  connect(p->executor(), &pipeline::PipelineExecutor::nodeExecutionFinished,
+          this, [](pipeline::Node* node, bool success) {
+    if (!success) {
+      return;
+    }
+    for (auto* port : node->outputPorts()) {
+      if (!pipeline::isVolumeType(port->type()) || !port->hasData()) {
+        continue;
+      }
+      pipeline::VolumeDataPtr vol;
+      try {
+        vol = port->data().value<pipeline::VolumeDataPtr>();
+      } catch (const std::bad_any_cast&) {
+        continue;
+      }
+      if (vol && vol->hasColorMap()) {
+        vol->rescaleColorMap();
+      }
+    }
+  });
+
+  // Backstop for the per-port intermediate path: covers nodes whose
+  // first intermediate never fires (no progress.data) and the first
+  // run of a freshly loaded pipeline. Topological order makes sure
+  // upstream color maps exist before downstream's copyColorMapFrom.
+  connect(p, &pipeline::Pipeline::executionFinished, this, [this, p]() {
+    bool anyNewColorMaps = false;
+    for (auto* node : p->topologicalSort()) {
+      for (auto* port : node->outputPorts()) {
+        if (ensureColorMapForPort(node, port)) {
+          anyNewColorMaps = true;
+        }
+      }
+    }
+
+    // Refresh sinks that skipped updateColorMap during execution
+    // (proxy didn't exist yet) plus the central histogram widget.
+    if (anyNewColorMaps) {
+      for (auto* node : p->nodes()) {
+        auto* sink = dynamic_cast<pipeline::LegacyModuleSink*>(node);
+        if (sink && sink->isColorMapNeeded()) {
+          sink->updateColorMap();
+        }
+      }
+      updateColorMapDisplay();
+    }
+  });
+
+  // Lock all mutation UI while the pipeline is executing.
+  connect(p, &pipeline::Pipeline::executionStarted,
+          this, [this]() { setPipelineMutationEnabled(false); });
+  connect(p, &pipeline::Pipeline::executionFinished,
+          this, [this]() { setPipelineMutationEnabled(true); });
+}
+
+void MainWindow::setPipelineMutationEnabled(bool enabled)
+{
+  m_pipelineStrip->setInteractionLocked(!enabled);
+  m_ui->menuData->setEnabled(enabled);
+  m_ui->menuTomography->setEnabled(enabled);
+  m_ui->menuSegmentation->setEnabled(enabled);
+  m_ui->menuModules->setEnabled(enabled);
+  if (m_customTransformsMenu) {
+    m_customTransformsMenu->setEnabled(enabled);
+  }
+  if (m_pipelineTemplates) {
+    m_pipelineTemplates->setEnabled(enabled);
+  }
+}
+
+pipeline::Pipeline* MainWindow::pipeline() const
+{
+  return m_pipeline;
+}
+
+void MainWindow::onNodeSelected(pipeline::Node* node)
+{
+  // Forward to ActiveObjects; mutual exclusion of node/port/link is
+  // enforced there. Properties panel, strip sync, and colormap are
+  // handled by onActiveNodeChanged / onActivePortChanged.
+  ActiveObjects::instance().setActiveNode(node);
+}
+
+void MainWindow::onPortSelected(pipeline::OutputPort* port)
+{
+  ActiveObjects::instance().setActivePort(port);
+}
+
+void MainWindow::onLinkSelected(pipeline::Link* link)
+{
+  ActiveObjects::instance().setActiveLink(link);
+}
+
+void MainWindow::clearDynamicPropertiesWidget()
+{
+  if (m_dynamicPropertiesWidget) {
+    auto* w = m_dynamicPropertiesWidget.data();
+    m_dynamicPropertiesWidget = nullptr;
+    m_ui->propertiesPanelStackedWidget->removeWidget(w);
+    w->deleteLater();
+  }
+}
+
+
+void MainWindow::onActiveNodeChanged(pipeline::Node* node)
+{
+  m_pipelineStrip->setSelectedNode(node);
+  disconnect(m_sinkColorMapChangedConn);
+  disconnect(m_editingChangedConn);
+  clearDynamicPropertiesWidget();
+
+  if (!node) {
+    m_ui->propertiesPanelStackedWidget->setCurrentWidget(m_ui->empty);
+    return;
+  }
+
+  // Hide the properties panel while an edit dialog is open for the active
+  // node, and restore it when the dialog is dismissed.
+  //
+  // Both NodeEditDialog and NodePropertiesPanel manage the
+  // parametersApplied → execute() auto-wiring.  To avoid them stepping on
+  // each other we must guarantee ordering:
+  //   editing=true  → destroy the panel *immediately* so its destructor
+  //                    restores auto-wiring before the dialog's constructor
+  //                    re-disconnects it.
+  //   editing=false → *defer* panel creation so the dialog's destructor
+  //                    restores auto-wiring before the new panel suppresses it.
+  m_editingChangedConn = connect(
+    node, &pipeline::Node::editingChanged, this, [this](bool editing) {
+      if (editing) {
+        if (m_dynamicPropertiesWidget) {
+          auto* w = m_dynamicPropertiesWidget.data();
+          m_dynamicPropertiesWidget = nullptr;
+          m_ui->propertiesPanelStackedWidget->removeWidget(w);
+          delete w;
+        }
+        m_ui->propertiesPanelStackedWidget->setCurrentWidget(m_ui->empty);
+      } else {
+        QTimer::singleShot(0, this, [this]() {
+          onActiveNodeChanged(ActiveObjects::instance().activeNode());
+        });
+      }
+    });
+
+  QWidget* propsWidget = nullptr;
+
+  if (auto* sink = dynamic_cast<pipeline::LegacyModuleSink*>(node)) {
+    if (!node->isEditing()) {
+      propsWidget = sink->createSinkPropertiesWidget(
+        m_ui->propertiesPanelStackedWidget);
+    }
+    // React to detached colormap toggling while this sink is selected
+    m_sinkColorMapChangedConn = connect(
+      sink, &pipeline::LegacyModuleSink::colorMapChanged,
+      this, [this, sink]() {
+        if (sink->useDetachedColorMap()) {
+          m_ui->centralWidget->setActiveSinkNode(sink);
+        } else {
+          updateColorMapDisplay();
+        }
+      });
+  } else if (node && node->hasPropertiesWidget() && !node->isEditing()) {
+    propsWidget = new pipeline::NodePropertiesPanel(
+      node, pipeline(), m_ui->propertiesPanelStackedWidget);
+  }
+
+  if (propsWidget) {
+    m_dynamicPropertiesWidget = propsWidget;
+    m_ui->propertiesPanelStackedWidget->addWidget(propsWidget);
+    m_ui->propertiesPanelStackedWidget->setCurrentWidget(propsWidget);
+  } else {
+    m_ui->propertiesPanelStackedWidget->setCurrentWidget(m_ui->empty);
+  }
+
+  // Sink with detached colormap: display it; otherwise the tip port
+  // drives the colormap via updateColorMapDisplay().
+  if (auto* sink = dynamic_cast<pipeline::LegacyModuleSink*>(node)) {
+    if (sink->useDetachedColorMap()) {
+      m_ui->centralWidget->setActiveSinkNode(sink);
+      return;
+    }
+  }
+  updateColorMapDisplay();
+}
+
+void MainWindow::onActivePortChanged(pipeline::OutputPort* port)
+{
+  m_pipelineStrip->setSelectedPort(port);
+  clearDynamicPropertiesWidget();
+  if (!port) {
+    m_ui->propertiesPanelStackedWidget->setCurrentWidget(m_ui->empty);
+    return;
+  }
+
+  if (pipeline::isVolumeType(port->type())) {
+    auto* propsWidget =
+      new pipeline::VolumePropertiesWidget(nullptr);
+    propsWidget->setOutputPort(port);
+    connect(propsWidget->showTimeSeriesLabelCheckBox(), &QCheckBox::toggled,
+            &ActiveObjects::instance(),
+            &ActiveObjects::setShowTimeSeriesLabel);
+    connect(&ActiveObjects::instance(),
+            &ActiveObjects::showTimeSeriesLabelChanged,
+            propsWidget->showTimeSeriesLabelCheckBox(),
+            &QCheckBox::setChecked);
+    propsWidget->setupInteractiveTransform();
+    auto* scrollArea = new QScrollArea(m_ui->propertiesPanelStackedWidget);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setWidget(propsWidget);
+    m_dynamicPropertiesWidget = scrollArea;
+    m_ui->propertiesPanelStackedWidget->addWidget(scrollArea);
+    m_ui->propertiesPanelStackedWidget->setCurrentWidget(scrollArea);
+  } else if (port->type() == pipeline::PortType::Molecule && port->hasData()) {
+    try {
+      auto molecule =
+        port->data().value<vtkSmartPointer<vtkMolecule>>();
+      if (molecule) {
+        auto* propsWidget = new MoleculeProperties(
+          molecule, m_ui->propertiesPanelStackedWidget);
+        m_dynamicPropertiesWidget = propsWidget;
+        m_ui->propertiesPanelStackedWidget->addWidget(propsWidget);
+        m_ui->propertiesPanelStackedWidget->setCurrentWidget(propsWidget);
+      } else {
+        m_ui->propertiesPanelStackedWidget->setCurrentWidget(m_ui->empty);
+      }
+    } catch (const std::bad_any_cast&) {
+      m_ui->propertiesPanelStackedWidget->setCurrentWidget(m_ui->empty);
+    }
+  } else {
+    m_ui->propertiesPanelStackedWidget->setCurrentWidget(m_ui->empty);
+  }
+}
+
+void MainWindow::onActiveLinkChanged(pipeline::Link* link)
+{
+  m_pipelineStrip->setSelectedLink(link);
+  if (!link) {
+    return; // Null link — leave current properties panel in place.
+  }
+  clearDynamicPropertiesWidget();
+  // No link properties panel yet — show empty.
+  m_ui->propertiesPanelStackedWidget->setCurrentWidget(m_ui->empty);
+}
+
+bool MainWindow::ensureColorMapForPort(pipeline::Node* node,
+                                       pipeline::OutputPort* port)
+{
+  if (!port || !port->hasData() ||
+      !pipeline::isVolumeType(port->type())) {
+    return false;
+  }
+  pipeline::VolumeDataPtr vol;
+  try {
+    vol = port->data().value<pipeline::VolumeDataPtr>();
+  } catch (const std::bad_any_cast&) {
+    return false;
+  }
+  if (!vol) {
+    return false;
+  }
+
+  // LabelMap ports never inherit a colormap: each execution gets a
+  // freshly-built segmentation preset based on its own label set. Skip
+  // rescale too — the segmentation preset's node positions are already
+  // in data-coordinate space and rescaling would shift them.
+  if (port->type() == pipeline::PortType::LabelMap) {
+    bool created = !vol->hasColorMap();
+    pipeline::applySegmentationColorMap(*vol);
+    return created;
+  }
+
+  pipeline::VolumeDataPtr upstream;
+  if (node) {
+    for (auto* in : node->inputPorts()) {
+      if (in->hasData() && pipeline::isVolumeType(in->data().type())) {
+        try {
+          upstream = in->data().value<pipeline::VolumeDataPtr>();
+        } catch (const std::bad_any_cast&) {
+        }
+        if (upstream) {
+          break;
+        }
+      }
+    }
+  }
+  // Pass-through node: shared color map, nothing to do.
+  if (vol == upstream) {
+    return false;
+  }
+
+  bool created = false;
+  if (!vol->hasColorMap()) {
+    vol->initColorMap();
+    if (upstream && upstream->hasColorMap()) {
+      vol->copyColorMapFrom(*upstream);
+    }
+    created = true;
+  }
+  vol->rescaleColorMap();
+  return created;
+}
+
+void MainWindow::scheduleColorMapDisplayUpdate()
+{
+  // Coalesce — drop if a refresh is already scheduled. Live operator
+  // updates fire dataChanged at multi-Hz rates; without this each
+  // would re-bind the color-map / histogram machinery.
+  if (m_colorMapUpdatePending) {
+    return;
+  }
+  m_colorMapUpdatePending = true;
+  static constexpr int kColorMapUpdateThrottleMs = 200;
+  QTimer::singleShot(kColorMapUpdateThrottleMs, this, [this]() {
+    m_colorMapUpdatePending = false;
+    updateColorMapDisplay();
+  });
+}
+
+void MainWindow::updateColorMapDisplay()
+{
+  auto* tipPort = ActiveObjects::instance().activeTipOutputPort();
+  if (!tipPort || !pipeline::isVolumeType(tipPort->type()) ||
+      !tipPort->hasData()) {
+    // Nothing valid to display — clear the histogram + gradient
+    // opacity widgets so a Reset (or any state-clear) doesn't leave
+    // stale curves from the previous pipeline on screen.
+    m_ui->centralWidget->setActiveVolumeData(nullptr);
+    return;
+  }
+  pipeline::VolumeDataPtr vol;
+  try {
+    vol = tipPort->data().value<pipeline::VolumeDataPtr>();
+  } catch (const std::bad_any_cast&) {
+    m_ui->centralWidget->setActiveVolumeData(nullptr);
+    return;
+  }
+  m_ui->centralWidget->setActiveVolumeData(vol);
 }
 
 } // namespace tomviz

@@ -8,3 +8,4 @@ libxml2-devel=2.14*
 gtest
 # This is needed for installing stuff on Python3.13
 setuptools
+pip

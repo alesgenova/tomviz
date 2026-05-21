@@ -21,8 +21,6 @@ class OtsuMultipleThreshold(tomviz.operators.CancelableOperator):
 
         try:
             import itk
-            import itkExtras
-            import itkTypes
             from tomviz import itkutils
         except Exception as exc:
             print("Could not import necessary module(s)")
@@ -66,8 +64,8 @@ class OtsuMultipleThreshold(tomviz.operators.CancelableOperator):
 
             # Cast threshold output to an integral type if needed.
             py_buffer_type = itk_threshold_image_type
-            voxel_type = itkExtras.template(itk_threshold_image_type)[1][0]
-            if voxel_type is itkTypes.F or voxel_type is itkTypes.D:
+            voxel_type = itk.template(itk_threshold_image_type)[1][0]
+            if voxel_type is itk.F or voxel_type is itk.D:
                 self.progress.message = "Casting output to integral type"
 
                 # Unsigned char supports 256 labels, or 255 threshold levels.

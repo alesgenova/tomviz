@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PyXRFWidget</class>
+ <widget class="QWidget" name="PyXRFWidget">
+  <layout class="QVBoxLayout" name="mainLayout">
+   <property name="leftMargin">
+    <number>6</number>
+   </property>
+   <property name="topMargin">
+    <number>6</number>
+   </property>
+   <property name="rightMargin">
+    <number>6</number>
+   </property>
+   <property name="bottomMargin">
+    <number>6</number>
+   </property>
+
+   <!-- Data Section -->
+   <item>
+    <widget class="QGroupBox" name="dataGroup">
+     <property name="title">
+      <string>Data</string>
+     </property>
+     <layout class="QGridLayout" name="dataGridLayout">
+      <item row="0" column="0">
+       <widget class="QLabel" name="commandLabel">
+        <property name="text">
+         <string>PyXRF Utils Command:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1" colspan="2">
+       <widget class="QLineEdit" name="command">
+        <property name="text">
+         <string>pyxrf-utils</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="workingDirectoryLabel">
+        <property name="text">
+         <string>Data Directory:</string>
+        </property>
+        <property name="buddy">
+         <cstring>workingDirectory</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QLineEdit" name="workingDirectory"/>
+      </item>
+      <item row="1" column="2">
+       <widget class="QPushButton" name="selectWorkingDirectory">
+        <property name="text">
+         <string>Select</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="scanRangeLabel">
+        <property name="text">
+         <string>Scan Range:</string>
+        </property>
+        <property name="buddy">
+         <cstring>scanRange</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1" colspan="2">
+       <widget class="QLineEdit" name="scanRange">
+        <property name="placeholderText">
+         <string>start:stop or start:stop:stride</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0">
+       <widget class="QCheckBox" name="skipDownloads">
+        <property name="text">
+         <string>Skip downloads</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="1">
+       <widget class="QCheckBox" name="redownloadSuccessful">
+        <property name="text">
+         <string>Re-download successful scans?</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="2">
+       <widget class="QPushButton" name="downloadData">
+        <property name="text">
+         <string>Download Data</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="0" colspan="3">
+       <layout class="QHBoxLayout" name="filterLayout">
+        <item>
+         <widget class="QLabel" name="filterSidsLabel">
+          <property name="text">
+           <string>Filter SIDs:</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLineEdit" name="filterSidsString">
+          <property name="placeholderText">
+           <string>e.g. 100:200, 205, 210:220</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="applyFilter">
+          <property name="text">
+           <string>Apply</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="loadSidsFromTxtOrCSV">
+          <property name="text">
+           <string>Load from txt/csv</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item row="5" column="0" colspan="3">
+       <widget class="QTableWidget" name="scanTable">
+        <property name="editTriggers">
+         <set>QAbstractItemView::NoEditTriggers</set>
+        </property>
+        <property name="selectionMode">
+         <enum>QAbstractItemView::NoSelection</enum>
+        </property>
+        <attribute name="horizontalHeaderStretchLastSection">
+         <bool>true</bool>
+        </attribute>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+
+   <!-- Process Projections Section -->
+   <item>
+    <widget class="QGroupBox" name="processGroup">
+     <property name="title">
+      <string>Process Projections</string>
+     </property>
+     <layout class="QGridLayout" name="processGridLayout">
+      <item row="0" column="0">
+       <widget class="QLabel" name="parametersFileLabel">
+        <property name="text">
+         <string>Parameters File:</string>
+        </property>
+        <property name="buddy">
+         <cstring>parametersFile</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QLineEdit" name="parametersFile"/>
+      </item>
+      <item row="0" column="2">
+       <widget class="QPushButton" name="selectParametersFile">
+        <property name="text">
+         <string>Select</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="icNameLabel">
+        <property name="text">
+         <string>Normalization Channel:</string>
+        </property>
+        <property name="buddy">
+         <cstring>icName</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1" colspan="2">
+       <widget class="QComboBox" name="icName"/>
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="csvOutputLabel">
+        <property name="text">
+         <string>Output CSV File:</string>
+        </property>
+        <property name="buddy">
+         <cstring>csvOutput</cstring>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QLineEdit" name="csvOutput">
+        <property name="placeholderText">
+         <string>(optional)</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="2">
+       <widget class="QPushButton" name="selectCsvOutput">
+        <property name="text">
+         <string>Select</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="0" colspan="3">
+       <widget class="QCheckBox" name="skipProcessed">
+        <property name="text">
+         <string>Skip already processed scans?</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="0" colspan="3">
+       <widget class="QCheckBox" name="rotateDatasets">
+        <property name="text">
+         <string>Rotate datasets to Tomviz convention?</string>
+        </property>
+        <property name="checked">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="0">
+       <widget class="QLabel" name="pyxrfGUICommandLabel">
+        <property name="text">
+         <string>PyXRF GUI Command:</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="1">
+       <widget class="QLineEdit" name="pyxrfGUICommand">
+        <property name="text">
+         <string>pyxrf</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="2">
+       <widget class="QPushButton" name="startPyXRFGUI">
+        <property name="text">
+         <string>Start PyXRF GUI</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

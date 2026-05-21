@@ -28,7 +28,7 @@ class ReconWBPOperator(tomviz.operators.CancelableOperator):
         self.progress.maximum = Nslice
         step = 0
 
-        recon = np.empty([Nslice, Nrecon, Nrecon], dtype=np.float32, order='F')
+        recon = np.zeros([Nslice, Nrecon, Nrecon], dtype=np.float32, order='F')
         t0 = time.time()
         counter = 1
         etcMessage = 'Estimated time to complete: n/a'

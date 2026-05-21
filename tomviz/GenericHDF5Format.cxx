@@ -4,7 +4,7 @@
 #include "GenericHDF5Format.h"
 
 #include <DataExchangeFormat.h>
-#include <DataSource.h>
+#include "legacy/DataSource.h"
 #include <Hdf5SubsampleWidget.h>
 #include <Utilities.h>
 
@@ -124,8 +124,8 @@ void GenericHDF5Format::reorderData(vtkImageData* in, vtkImageData* out,
     auto* name = inPd->GetArrayName(i);
     auto* array = inPd->GetArray(name);
 
-    vtkSmartPointer<vtkDataArray> newArray =
-      vtkDataArray::CreateDataArray(array->GetDataType());
+    auto newArray = vtkSmartPointer<vtkDataArray>::Take(
+      vtkDataArray::CreateDataArray(array->GetDataType()));
     newArray->SetName(name);
     reorderDataArray(array, newArray, in->GetDimensions(), mode);
     outPd->AddArray(newArray);
@@ -166,8 +166,8 @@ QVector<double> GenericHDF5Format::readAngles(h5::H5ReadWrite& reader,
     return angles;
   }
 
-  vtkSmartPointer<vtkDataArray> array =
-    vtkDataArray::CreateDataArray(vtkDataType);
+  auto array = vtkSmartPointer<vtkDataArray>::Take(
+    vtkDataArray::CreateDataArray(vtkDataType));
   array->SetNumberOfTuples(dims[0]);
   if (!reader.readData(path, type, array->GetVoidPointer(0))) {
     std::cerr << "Failed to read the angles\n";
@@ -282,14 +282,15 @@ bool GenericHDF5Format::addScalarArray(h5::H5ReadWrite& reader,
 
       std::cerr << "Error in GenericHDF5Format::addScalarArray():\n"
                 << ss.str() << std::endl;
-      QMessageBox::critical(nullptr, "Dimensions do not match",
-                            ss.str().c_str());
+      // No modal dialog here: the caller may run under a BQC during
+      // intermediate updates, and a nested QDialog reenters paint/
+      // layout from inside a format-reader stack frame and crashes.
       return false;
     }
   }
 
-  vtkSmartPointer<vtkAbstractArray> array =
-    vtkAbstractArray::CreateArray(vtkDataType);
+  auto array = vtkSmartPointer<vtkAbstractArray>::Take(
+    vtkAbstractArray::CreateArray(vtkDataType));
   array->SetNumberOfTuples(counts[0] * counts[1] * counts[2]);
   array->SetName(name.c_str());
 

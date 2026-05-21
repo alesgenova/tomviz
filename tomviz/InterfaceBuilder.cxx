@@ -4,9 +4,9 @@
 #include "InterfaceBuilder.h"
 
 #include "ActiveObjects.h"
-#include "DataSource.h"
+#include "legacy/DataSource.h"
 #include "DoubleSpinBox.h"
-#include "ModuleManager.h"
+#include "legacy/modules/ModuleManager.h"
 #include "SpinBox.h"
 #include "Utilities.h"
 

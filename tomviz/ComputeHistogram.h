@@ -12,14 +12,24 @@
 
 namespace tomviz {
 
+// Mirrors the bin count in HistogramManager::PopulateHistogram.
+constexpr int kHistogramBins = 256;
+
 /** Single component integral type specialization. */
 template <typename T,
           typename std::enable_if<std::is_integral<T>::value>::type* = nullptr>
 void calcHistogram(T* values, const vtkIdType numTuples, const float min,
-                   const float inv, uint64_t* pops, int&)
+                   const float inv, uint64_t* pops, int& invalid)
 {
+  // Clamp idx so garbage data (e.g. uninit numpy buffer pushed
+  // before being filled) doesn't write past pops[].
   for (vtkIdType j = 0; j < numTuples; ++j) {
-    ++pops[static_cast<int>((*values++ - min) * inv)];
+    int idx = static_cast<int>((*values++ - min) * inv);
+    if (idx >= 0 && idx < kHistogramBins) {
+      ++pops[idx];
+    } else {
+      ++invalid;
+    }
   }
 }
 
@@ -34,6 +44,7 @@ void calcHistogram(T*, const vtkIdType, uint64_t*)
 void calcHistogram(unsigned char* values, const vtkIdType numTuples,
                    uint64_t* pops)
 {
+  // unsigned char is always in [0, kBins-1], no clamp needed.
   for (vtkIdType j = 0; j < numTuples; ++j) {
     ++pops[*values++];
   }
@@ -48,7 +59,12 @@ void calcHistogram(T* values, const vtkIdType numTuples, const float min,
   for (vtkIdType j = 0; j < numTuples; ++j) {
     T value = *(values++);
     if (std::isfinite(value)) {
-      ++pops[static_cast<int>((value - min) * inv)];
+      int idx = static_cast<int>((value - min) * inv);
+      if (idx >= 0 && idx < kHistogramBins) {
+        ++pops[idx];
+      } else {
+        ++invalid;
+      }
     } else {
       ++invalid;
     }

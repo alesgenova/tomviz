@@ -4,6 +4,7 @@
 #include "TimeSeriesLabel.h"
 
 #include "ActiveObjects.h"
+#include "legacy/DataSource.h"
 #include "TimeSeriesStep.h"
 #include "Utilities.h"
 
@@ -50,8 +51,11 @@ public:
     connect(&activeObjects(),
             QOverload<vtkSMViewProxy*>::of(&ActiveObjects::viewChanged), this,
             &Internal::viewChanged);
-    connect(&activeObjects(), &ActiveObjects::dataSourceActivated, this,
-            &Internal::dataSourceActivated);
+    connect(&activeObjects(), &ActiveObjects::activeNodeChanged, this,
+            [this]() {
+              // TODO: extract DataSource from active node/port
+              dataSourceActivated(nullptr);
+            });
     connect(&activeObjects(), &ActiveObjects::showTimeSeriesLabelChanged, this,
             &Internal::updateVisibility);
   }

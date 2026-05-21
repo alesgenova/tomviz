@@ -6,7 +6,7 @@
 
 #include <QDialog>
 
-#include "DataSource.h"
+#include "legacy/DataSource.h"
 #include "ImageStackModel.h"
 
 #include <QScopedPointer>

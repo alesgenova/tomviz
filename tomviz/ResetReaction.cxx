@@ -3,7 +3,10 @@
 
 #include "ResetReaction.h"
 
-#include "ModuleManager.h"
+#include "ActiveObjects.h"
+#include "HistogramManager.h"
+#include "legacy/modules/ModuleManager.h"
+#include "pipeline/Pipeline.h"
 #include "Utilities.h"
 
 #include <QMessageBox>
@@ -15,14 +18,15 @@ ResetReaction::ResetReaction(QAction* parentObject) : Superclass(parentObject)
 
 void ResetReaction::updateEnableState()
 {
-  bool enabled = !ModuleManager::instance().hasRunningOperators();
+  auto* pipeline = ActiveObjects::instance().pipeline();
+  bool enabled = !pipeline || !pipeline->isExecuting();
   parentAction()->setEnabled(enabled);
 }
 
 void ResetReaction::reset()
 {
-  if (ModuleManager::instance().hasDataSources() ||
-      ModuleManager::instance().hasMoleculeSources()) {
+  auto* pipeline = ActiveObjects::instance().pipeline();
+  if (pipeline && !pipeline->nodes().isEmpty()) {
     if (QMessageBox::Yes !=
         QMessageBox::warning(
           tomviz::mainWidget(), "Reset",
@@ -32,5 +36,9 @@ void ResetReaction::reset()
     }
   }
   ModuleManager::instance().reset();
+  if (pipeline) {
+    pipeline->clear();
+  }
+  HistogramManager::instance().clearCaches();
 }
 } // namespace tomviz

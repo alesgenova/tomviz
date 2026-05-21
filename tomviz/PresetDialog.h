@@ -31,6 +31,7 @@ public:
 signals:
   void applyPreset();
   void resetToDefaults();
+  void createSegmentationColormapRequested();
 
 private slots:
   void warning();

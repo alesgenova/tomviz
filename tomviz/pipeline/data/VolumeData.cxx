@@ -1,0 +1,745 @@
+/* This source file is part of the Tomviz project, https://tomviz.org/.
+   It is released under the 3-Clause BSD License, see "LICENSE". */
+
+#include "VolumeData.h"
+
+#include "Utilities.h"
+
+#include <vtkColorTransferFunction.h>
+#include <vtkDataArray.h>
+#include <vtkDiscretizableColorTransferFunction.h>
+#include <vtkDoubleArray.h>
+#include <vtkFieldData.h>
+#include <vtkTypeInt32Array.h>
+#include <vtkImageData.h>
+#include <vtkPointData.h>
+#include <vtkStringArray.h>
+#include <vtkPiecewiseFunction.h>
+#include <vtkSMParaViewPipelineController.h>
+#include <vtkSMPropertyHelper.h>
+#include <vtkSMProxy.h>
+#include <vtkSMProxyManager.h>
+#include <vtkSMSessionProxyManager.h>
+#include <vtkSMTransferFunctionManager.h>
+#include <vtkSMTransferFunctionProxy.h>
+
+#include <QJsonArray>
+
+#include <array>
+
+
+namespace tomviz {
+namespace pipeline {
+
+VolumeData::VolumeData() = default;
+
+VolumeData::VolumeData(vtkSmartPointer<vtkImageData> imageData)
+  : m_imageData(imageData)
+{
+  // Extract units from field data if available (legacy format stores a
+  // vtkStringArray named "units" where value 0 is the unit string).
+  if (m_imageData) {
+    auto* fd = m_imageData->GetFieldData();
+    if (fd && fd->HasArray("units")) {
+      auto* arr =
+        vtkStringArray::SafeDownCast(fd->GetAbstractArray("units"));
+      if (arr && arr->GetNumberOfValues() > 0) {
+        m_units = QString::fromStdString(arr->GetValue(0));
+      }
+    }
+
+    // Seed the rename-history map with identity entries for each scalar
+    // array. renameScalarArray() transfers entries as names change; the
+    // serialize path then emits the {originalName: currentName} inverse.
+    if (auto* pd = m_imageData->GetPointData()) {
+      for (int i = 0; i < pd->GetNumberOfArrays(); ++i) {
+        auto* arr = pd->GetArray(i);
+        if (arr && arr->GetName()) {
+          QString name = QString::fromUtf8(arr->GetName());
+          m_currentToOriginal.insert(name, name);
+        }
+      }
+    }
+  }
+}
+
+VolumeData::~VolumeData()
+{
+  // initColorMap() registers the CTF in the session proxy manager under a
+  // unique, counter-based name. The proxy manager holds its own reference,
+  // so dropping our vtkSmartPointer isn't enough — without this unregister
+  // the proxy lives until app exit and every load/reset cycle adds another.
+  if (m_colorMap) {
+    vtkNew<vtkSMParaViewPipelineController> controller;
+    controller->UnRegisterProxy(m_colorMap);
+  }
+}
+
+vtkImageData* VolumeData::imageData() const
+{
+  return m_imageData;
+}
+
+void VolumeData::setImageData(vtkSmartPointer<vtkImageData> data)
+{
+  m_imageData = data;
+}
+
+bool VolumeData::isValid() const
+{
+  return m_imageData != nullptr;
+}
+
+std::array<int, 3> VolumeData::dimensions() const
+{
+  std::array<int, 3> dims = { 0, 0, 0 };
+  if (m_imageData) {
+    m_imageData->GetDimensions(dims.data());
+  }
+  return dims;
+}
+
+std::array<double, 3> VolumeData::spacing() const
+{
+  std::array<double, 3> s = { 1.0, 1.0, 1.0 };
+  if (m_imageData) {
+    m_imageData->GetSpacing(s.data());
+  }
+  return s;
+}
+
+void VolumeData::setSpacing(double x, double y, double z)
+{
+  if (m_imageData) {
+    m_imageData->SetSpacing(x, y, z);
+  }
+}
+
+std::array<double, 3> VolumeData::origin() const
+{
+  std::array<double, 3> o = { 0.0, 0.0, 0.0 };
+  if (m_imageData) {
+    m_imageData->GetOrigin(o.data());
+  }
+  return o;
+}
+
+void VolumeData::setOrigin(double x, double y, double z)
+{
+  if (m_imageData) {
+    m_imageData->SetOrigin(x, y, z);
+  }
+}
+
+std::array<double, 3> VolumeData::displayPosition() const
+{
+  return m_displayPosition;
+}
+
+void VolumeData::setDisplayPosition(double x, double y, double z)
+{
+  m_displayPosition = { x, y, z };
+}
+
+std::array<double, 3> VolumeData::displayOrientation() const
+{
+  return m_displayOrientation;
+}
+
+void VolumeData::setDisplayOrientation(double x, double y, double z)
+{
+  m_displayOrientation = { x, y, z };
+}
+
+std::array<int, 6> VolumeData::extent() const
+{
+  std::array<int, 6> e = { 0, 0, 0, 0, 0, 0 };
+  if (m_imageData) {
+    m_imageData->GetExtent(e.data());
+  }
+  return e;
+}
+
+std::array<double, 6> VolumeData::bounds() const
+{
+  std::array<double, 6> b = { 0.0, 0.0, 0.0, 0.0, 0.0, 0.0 };
+  if (m_imageData) {
+    m_imageData->GetBounds(b.data());
+  }
+  return b;
+}
+
+vtkDataArray* VolumeData::scalars() const
+{
+  if (m_imageData) {
+    return m_imageData->GetPointData()->GetScalars();
+  }
+  return nullptr;
+}
+
+QStringList VolumeData::scalarNames() const
+{
+  QStringList names;
+  if (!m_imageData) {
+    return names;
+  }
+  auto* pd = m_imageData->GetPointData();
+  if (!pd) {
+    return names;
+  }
+  const int n = pd->GetNumberOfArrays();
+  names.reserve(n);
+  for (int i = 0; i < n; ++i) {
+    names << QString::fromUtf8(pd->GetArrayName(i));
+  }
+  return names;
+}
+
+QString VolumeData::activeScalarName() const
+{
+  auto* s = scalars();
+  if (!s || !s->GetName()) {
+    return {};
+  }
+  return QString::fromUtf8(s->GetName());
+}
+
+void VolumeData::renameScalarArray(const QString& oldName,
+                                    const QString& newName)
+{
+  if (oldName.isEmpty() || newName.isEmpty() || oldName == newName ||
+      !m_imageData) {
+    return;
+  }
+  auto* pd = m_imageData->GetPointData();
+  if (!pd) {
+    return;
+  }
+  if (pd->HasArray(newName.toUtf8().constData())) {
+    return; // target name already in use
+  }
+  auto* arr = pd->GetArray(oldName.toUtf8().constData());
+  if (!arr) {
+    return; // nothing named oldName
+  }
+
+  const bool wasActive =
+    pd->GetScalars() == arr; // keep active-state across rename
+
+  // Preserve the original name so subsequent serializes still emit the
+  // correct {originalName: currentName} entry.
+  const QString original =
+    m_currentToOriginal.value(oldName, oldName);
+
+  arr->SetName(newName.toUtf8().constData());
+  m_currentToOriginal.remove(oldName);
+  m_currentToOriginal.insert(newName, original);
+
+  if (wasActive) {
+    pd->SetActiveScalars(newName.toUtf8().constData());
+  }
+}
+
+QString VolumeData::originalScalarName(const QString& currentName) const
+{
+  return m_currentToOriginal.value(currentName, currentName);
+}
+
+int VolumeData::numberOfComponents() const
+{
+  auto* s = scalars();
+  return s ? s->GetNumberOfComponents() : 0;
+}
+
+std::array<double, 2> VolumeData::scalarRange() const
+{
+  std::array<double, 2> range = { 0.0, 0.0 };
+  auto* s = scalars();
+  if (s) {
+    s->GetFiniteRange(range.data(), -1);
+  }
+  return range;
+}
+
+QString VolumeData::label() const
+{
+  return m_label;
+}
+
+void VolumeData::setLabel(const QString& label)
+{
+  m_label = label;
+}
+
+bool VolumeData::hasColorMap() const
+{
+  return m_ctf != nullptr;
+}
+
+void VolumeData::initColorMap()
+{
+  if (m_ctf) {
+    return; // already initialized
+  }
+
+  auto* mgr = vtkSMProxyManager::GetProxyManager();
+  if (!mgr) {
+    return;
+  }
+  auto* pxm = mgr->GetActiveSessionProxyManager();
+  if (!pxm) {
+    return;
+  }
+
+  static unsigned int counter = 0;
+  ++counter;
+
+  vtkNew<vtkSMTransferFunctionManager> tfmgr;
+  m_colorMap = tfmgr->GetColorTransferFunction(
+    QString("VolumeDataColorMap%1").arg(counter).toLatin1().data(), pxm);
+
+  // Cache client-side VTK objects for direct manipulation
+  if (m_colorMap) {
+    m_ctf = vtkColorTransferFunction::SafeDownCast(
+      m_colorMap->GetClientSideObject());
+
+    auto* omap =
+      vtkSMPropertyHelper(m_colorMap, "ScalarOpacityFunction").GetAsProxy();
+    if (omap) {
+      m_opacity =
+        vtkPiecewiseFunction::SafeDownCast(omap->GetClientSideObject());
+    }
+  }
+}
+
+vtkSMProxy* VolumeData::colorMap()
+{
+  if (!m_colorMap) {
+    initColorMap();
+  }
+  return m_colorMap;
+}
+
+vtkSMProxy* VolumeData::opacityMap()
+{
+  auto* cmap = colorMap();
+  if (!cmap) {
+    return nullptr;
+  }
+  return vtkSMPropertyHelper(cmap, "ScalarOpacityFunction").GetAsProxy();
+}
+
+vtkColorTransferFunction* VolumeData::colorTransferFunction() const
+{
+  return m_ctf;
+}
+
+vtkPiecewiseFunction* VolumeData::scalarOpacity() const
+{
+  return m_opacity;
+}
+
+vtkPiecewiseFunction* VolumeData::gradientOpacity() const
+{
+  return m_gradientOpacity;
+}
+
+void VolumeData::syncColorMapToProxy()
+{
+  if (!m_colorMap) {
+    return;
+  }
+
+  // Push CTF control points to the proxy's RGBPoints property.
+  if (m_ctf && m_ctf->GetSize() > 0) {
+    if (auto* prop = m_colorMap->GetProperty("RGBPoints")) {
+      vtkSMPropertyHelper(prop).Set(m_ctf->GetDataPointer(),
+                                    m_ctf->GetSize() * 4);
+    }
+  }
+  m_colorMap->UpdateVTKObjects();
+
+  // Push opacity control points to the ScalarOpacityFunction sub-proxy's
+  // Points property. Use a bulk Set() with a contiguous 4*N buffer to
+  // match what RGBPoints does on the CTF side. Per-element Set() via
+  // SetNumberOfElements + individual Set(i, v) calls leaves the proxy's
+  // property out of sync, which means a subsequent
+  // vtkSMTransferFunctionProxy::RescaleTransferFunction(omap, ...)
+  // rescales stale/zero values and, on UpdateVTKObjects, wipes out the
+  // client-side PWF.
+  auto* omap =
+    vtkSMPropertyHelper(m_colorMap, "ScalarOpacityFunction").GetAsProxy();
+  if (omap && m_opacity && m_opacity->GetSize() > 0) {
+    const int n = m_opacity->GetSize();
+    std::vector<double> buffer(4 * n);
+    for (int i = 0; i < n; ++i) {
+      m_opacity->GetNodeValue(i, buffer.data() + 4 * i);
+    }
+    vtkSMPropertyHelper(omap, "Points").Set(buffer.data(), buffer.size());
+    omap->UpdateVTKObjects();
+  }
+}
+
+void VolumeData::rescaleColorMap()
+{
+  if (!m_colorMap) {
+    return;
+  }
+
+  auto range = scalarRange();
+  double r[2] = { range[0], range[1] };
+
+  vtkSMTransferFunctionProxy::RescaleTransferFunction(m_colorMap, r);
+
+  auto* omap =
+    vtkSMPropertyHelper(m_colorMap, "ScalarOpacityFunction").GetAsProxy();
+  if (omap) {
+    vtkSMTransferFunctionProxy::RescaleTransferFunction(omap, r);
+  }
+}
+
+void VolumeData::copyColorMapFrom(const VolumeData& source)
+{
+  if (!m_ctf || !source.m_ctf) {
+    return;
+  }
+
+  // Copy color transfer function control points
+  auto* srcCTF = source.m_ctf;
+  if (srcCTF->GetSize() > 0) {
+    m_ctf->RemoveAllPoints();
+    int n = srcCTF->GetSize();
+    double* data = srcCTF->GetDataPointer();
+    for (int i = 0; i < n; ++i) {
+      double* p = data + i * 4; // X, R, G, B
+      m_ctf->AddRGBPoint(p[0], p[1], p[2], p[3]);
+    }
+    m_ctf->Modified();
+  }
+
+  // Copy opacity function control points
+  auto* srcPWF = source.m_opacity;
+  if (m_opacity && srcPWF && srcPWF->GetSize() > 0) {
+    m_opacity->RemoveAllPoints();
+    int n = srcPWF->GetSize();
+    for (int i = 0; i < n; ++i) {
+      double val[4]; // X, Y, Midpoint, Sharpness
+      srcPWF->GetNodeValue(i, val);
+      m_opacity->AddPoint(val[0], val[1], val[2], val[3]);
+    }
+    m_opacity->Modified();
+  }
+
+  // Copy gradient opacity
+  auto* srcGrad = source.gradientOpacity();
+  if (srcGrad && srcGrad->GetSize() > 0) {
+    m_gradientOpacity->RemoveAllPoints();
+    int n = srcGrad->GetSize();
+    for (int i = 0; i < n; ++i) {
+      double val[4]; // X, Y, Midpoint, Sharpness
+      srcGrad->GetNodeValue(i, val);
+      m_gradientOpacity->AddPoint(val[0], val[1], val[2], val[3]);
+    }
+    m_gradientOpacity->Modified();
+  }
+
+  // Sync the VTK object state into the SM proxy so that proxy-level
+  // operations (e.g. rescaleColorMap, RescaleTransferFunction) see
+  // the copied values rather than the stale defaults.
+  syncColorMapToProxy();
+}
+
+void VolumeData::copyAndRescaleColorMapFrom(const VolumeData& source)
+{
+  copyColorMapFrom(source);
+  rescaleColorMap();
+}
+
+QString VolumeData::units() const
+{
+  return m_units;
+}
+
+void VolumeData::setUnits(const QString& units)
+{
+  m_units = units;
+}
+
+bool VolumeData::hasTiltAngles() const
+{
+  return hasTiltAngles(m_imageData);
+}
+
+QVector<double> VolumeData::tiltAngles() const
+{
+  return getTiltAngles(m_imageData);
+}
+
+void VolumeData::setTiltAngles(const QVector<double>& angles)
+{
+  if (!m_imageData) {
+    return;
+  }
+  vtkNew<vtkDoubleArray> array;
+  array->SetName("tilt_angles");
+  array->SetNumberOfTuples(angles.size());
+  for (int i = 0; i < angles.size(); ++i) {
+    array->SetValue(i, angles[i]);
+  }
+  m_imageData->GetFieldData()->AddArray(array);
+}
+
+bool VolumeData::hasTiltAngles(vtkImageData* image)
+{
+  if (!image || !image->GetFieldData()) {
+    return false;
+  }
+  auto* arr = image->GetFieldData()->GetArray("tilt_angles");
+  return arr != nullptr && arr->GetNumberOfTuples() > 0;
+}
+
+QVector<double> VolumeData::getTiltAngles(vtkImageData* image)
+{
+  QVector<double> result;
+  if (!image || !image->GetFieldData()) {
+    return result;
+  }
+  auto* arr = image->GetFieldData()->GetArray("tilt_angles");
+  if (!arr) {
+    return result;
+  }
+  result.resize(arr->GetNumberOfTuples());
+  for (vtkIdType i = 0; i < arr->GetNumberOfTuples(); ++i) {
+    result[i] = arr->GetComponent(i, 0);
+  }
+  return result;
+}
+
+bool VolumeData::hasScanIds() const
+{
+  return hasScanIds(m_imageData);
+}
+
+QVector<int> VolumeData::scanIds() const
+{
+  return getScanIds(m_imageData);
+}
+
+void VolumeData::setScanIds(const QVector<int>& ids)
+{
+  if (!m_imageData) {
+    return;
+  }
+  vtkNew<vtkTypeInt32Array> array;
+  array->SetName("scan_ids");
+  array->SetNumberOfTuples(ids.size());
+  for (int i = 0; i < ids.size(); ++i) {
+    array->SetValue(i, ids[i]);
+  }
+  m_imageData->GetFieldData()->AddArray(array);
+}
+
+bool VolumeData::hasScanIds(vtkImageData* image)
+{
+  if (!image || !image->GetFieldData()) {
+    return false;
+  }
+  auto* arr = image->GetFieldData()->GetArray("scan_ids");
+  return arr != nullptr && arr->GetNumberOfTuples() > 0;
+}
+
+QVector<int> VolumeData::getScanIds(vtkImageData* image)
+{
+  QVector<int> result;
+  if (!image || !image->GetFieldData()) {
+    return result;
+  }
+  auto* arr = image->GetFieldData()->GetArray("scan_ids");
+  if (!arr) {
+    return result;
+  }
+  result.resize(arr->GetNumberOfTuples());
+  for (vtkIdType i = 0; i < arr->GetNumberOfTuples(); ++i) {
+    result[i] = static_cast<int>(arr->GetComponent(i, 0));
+  }
+  return result;
+}
+
+void VolumeData::setTimeSteps(const QList<TimeStep>& steps)
+{
+  m_timeSteps = steps;
+  if (!steps.isEmpty()) {
+    m_currentTimeStep = 0;
+    m_imageData = steps[0].image;
+  }
+}
+
+QList<VolumeData::TimeStep> VolumeData::timeSteps() const
+{
+  return m_timeSteps;
+}
+
+bool VolumeData::hasTimeSteps() const
+{
+  return !m_timeSteps.isEmpty();
+}
+
+int VolumeData::currentTimeStepIndex() const
+{
+  return m_currentTimeStep;
+}
+
+void VolumeData::switchTimeStep(int index)
+{
+  if (index < 0 || index >= m_timeSteps.size()) {
+    return;
+  }
+  m_currentTimeStep = index;
+  m_imageData = m_timeSteps[index].image;
+}
+
+namespace {
+
+QJsonArray toJsonArray(const std::array<double, 3>& a)
+{
+  return QJsonArray{ a[0], a[1], a[2] };
+}
+
+} // namespace
+
+QJsonObject VolumeData::serialize() const
+{
+  QJsonObject json;
+  if (!m_label.isEmpty()) {
+    json["label"] = m_label;
+  }
+  if (!m_units.isEmpty()) {
+    json["units"] = m_units;
+  }
+  if (m_imageData) {
+    json["spacing"] = toJsonArray(spacing());
+  }
+  // "origin" carries the display-side translation (what legacy called
+  // "origin" in .tvsm). vtkImageData's intrinsic Origin isn't persisted
+  // because tomviz never modifies it — it's a property of the file and
+  // is restored on reload.
+  json["origin"] = toJsonArray(m_displayPosition);
+  json["orientation"] = toJsonArray(m_displayOrientation);
+
+  // Active-scalar name and rename history, mirroring legacy DataSource.
+  // scalarsRename is emitted as {originalName: currentName} pairs.
+  if (m_imageData) {
+    if (auto* scalars = m_imageData->GetPointData()
+                          ? m_imageData->GetPointData()->GetScalars()
+                          : nullptr) {
+      if (scalars->GetName()) {
+        json["activeScalars"] = QString::fromUtf8(scalars->GetName());
+      }
+    }
+  }
+  if (!m_currentToOriginal.isEmpty()) {
+    QJsonObject rename;
+    for (auto it = m_currentToOriginal.constBegin();
+         it != m_currentToOriginal.constEnd(); ++it) {
+      // key: currentName  value: originalName  →  inverse on disk
+      rename[it.value()] = it.key();
+    }
+    json["scalarsRename"] = rename;
+  }
+
+  if (m_colorMap) {
+    json["colorOpacityMap"] = tomviz::serialize(m_colorMap);
+  }
+  if (m_gradientOpacity && m_gradientOpacity->GetSize() > 0) {
+    json["gradientOpacityMap"] = tomviz::serialize(m_gradientOpacity.Get());
+  }
+  return json;
+}
+
+bool VolumeData::deserialize(const QJsonObject& json)
+{
+  if (json.contains("label")) {
+    m_label = json.value("label").toString();
+  }
+  if (json.contains("units")) {
+    setUnits(json.value("units").toString());
+  }
+  if (json.contains("spacing")) {
+    auto arr = json.value("spacing").toArray();
+    if (arr.size() == 3) {
+      setSpacing(arr.at(0).toDouble(), arr.at(1).toDouble(),
+                 arr.at(2).toDouble());
+    }
+  }
+  // "origin" is the display-side translation (what legacy DataSource
+  // called "origin" in its .tvsm output). Nothing in tomviz mutates
+  // vtkImageData's intrinsic origin after load, so we don't touch it.
+  if (json.contains("origin")) {
+    auto arr = json.value("origin").toArray();
+    if (arr.size() == 3) {
+      setDisplayPosition(arr.at(0).toDouble(), arr.at(1).toDouble(),
+                         arr.at(2).toDouble());
+    }
+  }
+  if (json.contains("orientation")) {
+    auto arr = json.value("orientation").toArray();
+    if (arr.size() == 3) {
+      setDisplayOrientation(arr.at(0).toDouble(), arr.at(1).toDouble(),
+                            arr.at(2).toDouble());
+    }
+  }
+
+  // Rename scalar arrays back to the names they had when the state was
+  // saved. Legacy serialized this as {originalName: currentName} pairs;
+  // we replay the rename so the freshly-loaded array ends up with the
+  // saved display name. Routed through renameScalarArray() so the
+  // rename-history map stays in sync.
+  if (m_imageData && json.contains("scalarsRename")) {
+    auto renames = json.value("scalarsRename").toObject();
+    for (auto it = renames.constBegin(); it != renames.constEnd(); ++it) {
+      renameScalarArray(it.key(), it.value().toString());
+    }
+  }
+
+  // DataSource-level "activeScalars" is a scalar array name (string).
+  // Per-sink "activeScalars" is an index (int) and is handled in each
+  // sink's deserialize — deliberately not applied here.
+  if (m_imageData && json.value("activeScalars").isString()) {
+    auto name = json.value("activeScalars").toString();
+    if (auto* pd = m_imageData->GetPointData()) {
+      if (pd->HasArray(name.toUtf8().constData())) {
+        pd->SetActiveScalars(name.toUtf8().constData());
+      }
+    }
+  }
+
+  if (json.contains("colorOpacityMap")) {
+    // Ensure the SM proxy and our cached client-side VTK pointers exist.
+    colorMap();
+    auto cmap = json.value("colorOpacityMap").toObject();
+
+    // The discretizable-CTF overload applies colors + colorSpace, and
+    // its own internal ScalarOpacityFunction, but that may be a
+    // different PWF than the one the ScalarOpacityFunction sub-proxy
+    // exposes (which is what the sinks read via opacityMap()), so we
+    // also apply the opacity points to m_opacity directly.
+    if (auto* disc =
+          vtkDiscretizableColorTransferFunction::SafeDownCast(m_ctf)) {
+      tomviz::deserialize(disc, cmap);
+    }
+    if (m_opacity) {
+      tomviz::deserialize(m_opacity, cmap);
+    }
+    // Client-side edits don't automatically update the proxy's cached
+    // property state — push them up so proxy consumers see them.
+    syncColorMapToProxy();
+  }
+  if (json.contains("gradientOpacityMap")) {
+    tomviz::deserialize(m_gradientOpacity.Get(),
+                        json.value("gradientOpacityMap").toObject());
+  }
+  return true;
+}
+
+} // namespace pipeline
+} // namespace tomviz

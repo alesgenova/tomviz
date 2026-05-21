@@ -3,9 +3,9 @@
 
 #include "MoleculeSource.h"
 
-#include "ModuleFactory.h"
-#include "ModuleManager.h"
-#include "Pipeline.h"
+#include "legacy/modules/ModuleFactory.h"
+#include "legacy/modules/ModuleManager.h"
+#include "legacy/Pipeline.h"
 
 #include <vtkMolecule.h>
 #include <vtkSMViewProxy.h>

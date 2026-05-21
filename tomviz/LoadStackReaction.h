@@ -9,16 +9,17 @@
 #include "ImageStackModel.h"
 
 namespace tomviz {
-class DataSource;
 class ImageStackDialog;
+
+namespace pipeline {
+class SourceNode;
+}
 
 /// LoadStackReaction handles the "Load Stack" action in tomviz. On trigger,
 /// this will open a dialog where the user can drag-n-drop or open multiple
-/// files
-/// or a folder. After selecting the files in the stack, options will be
-/// presented
-/// to include or exclude each file, and to label which type of stack it is
-///
+/// files or a folder. After selecting the files in the stack, options will be
+/// presented to include or exclude each file, and to label which type of stack
+/// it is.
 class LoadStackReaction : public pqReaction
 {
   Q_OBJECT
@@ -27,9 +28,9 @@ public:
   LoadStackReaction(QAction* parentAction);
   ~LoadStackReaction() override;
 
-  static DataSource* loadData();
-  static DataSource* loadData(const QStringList& fileNames);
-  static DataSource* loadData(const QString& directory);
+  static pipeline::SourceNode* loadData();
+  static pipeline::SourceNode* loadData(const QStringList& fileNames);
+  static pipeline::SourceNode* loadData(const QString& directory);
   static QList<ImageInfo> loadTiffStack(const QStringList& fileNames);
 
 protected:
@@ -39,7 +40,7 @@ protected:
 private:
   Q_DISABLE_COPY(LoadStackReaction)
 
-  static DataSource* execStackDialog(ImageStackDialog& dialog);
+  static pipeline::SourceNode* execStackDialog(ImageStackDialog& dialog);
   static QStringList summaryToFileNames(const QList<ImageInfo>& summary);
 };
 } // namespace tomviz

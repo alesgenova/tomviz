@@ -1,3 +1,5 @@
 {
-  "apply_to_each_array": false
+  "apply_to_each_array": false,
+  "inputType": "TiltSeries",
+  "outputType": "TiltSeries"
 }

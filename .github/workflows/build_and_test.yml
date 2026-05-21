@@ -91,7 +91,7 @@ jobs:
           TOMVIZ_REQUIRE_PYXRF: true
       run: |
         cd tomviz-build
-        export TOMVIZ_TEST_PYTHON_EXECUTABLE=$(which python3)
+        export TOMVIZ_TEST_PYTHON_EXECUTABLE=$(which python)
         ctest --output-on-failure
 
     - name: Upload CTest Log (On Failure Only)

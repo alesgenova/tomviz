@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 2,
+  "name": "ConstantDataset",
+  "label": "Constant Dataset",
+  "description": "Generate a 3D dataset filled with a constant value.",
+  "outputs": [
+    {"name": "volume", "type": "ImageData", "persistent": true}
+  ],
+  "parameters": [
+    {
+      "type": "xyz_header"
+    },
+    {
+      "name": "shape",
+      "label": "Shape",
+      "type": "int",
+      "default": [100, 100, 100],
+      "minimum": [1, 1, 1]
+    },
+    {
+      "name": "value",
+      "label": "Value",
+      "type": "double",
+      "default": 0.0
+    }
+  ]
+}

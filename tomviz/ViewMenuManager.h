@@ -21,6 +21,11 @@ class DataSource;
 class PreviousImageViewerSettings;
 class SliceViewDialog;
 
+namespace pipeline {
+class SliceSink;
+class Pipeline;
+} // namespace pipeline
+
 enum class ScaleLegendStyle : unsigned int;
 
 class ViewMenuManager : public pqViewMenuManager

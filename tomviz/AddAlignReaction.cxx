@@ -3,14 +3,8 @@
 
 #include "AddAlignReaction.h"
 
-#include "ActiveObjects.h"
-#include "DataSource.h"
-#include "EditOperatorDialog.h"
-#include "Pipeline.h"
-#include "TranslateAlignOperator.h"
-#include "Utilities.h"
-
-#include <QDebug>
+#include "TransformUtils.h"
+#include "pipeline/transforms/TranslateAlignTransform.h"
 
 namespace tomviz {
 
@@ -19,20 +13,9 @@ AddAlignReaction::AddAlignReaction(QAction* parentObject)
 {
 }
 
-void AddAlignReaction::align(DataSource* source)
+void AddAlignReaction::align(DataSource*)
 {
-  source = source ? source : ActiveObjects::instance().activeParentDataSource();
-  if (!source) {
-    qDebug() << "Exiting early - no data found.";
-    return;
-  }
-
-  auto Op = new TranslateAlignOperator(source);
-  auto dialog = new EditOperatorDialog(Op, source, true, tomviz::mainWidget());
-
-  dialog->setAttribute(Qt::WA_DeleteOnClose);
-  dialog->setWindowTitle("Manual Image Alignment");
-  dialog->show();
-  connect(Op, &QObject::destroyed, dialog, &QDialog::reject);
+  auto* transform = new pipeline::TranslateAlignTransform();
+  insertTransformIntoPipeline(transform);
 }
 } // namespace tomviz

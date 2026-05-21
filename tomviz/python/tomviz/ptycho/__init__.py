@@ -5,7 +5,6 @@ try:
         gather_ptycho_info,
         get_use_and_versions_from_csv,
         filter_sid_list,
-        load_stack_ptycho,
     )
     requirements_installed = True
 except ImportError:

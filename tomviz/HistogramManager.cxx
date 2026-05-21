@@ -14,6 +14,7 @@
 #include <iostream>
 
 #include <QCoreApplication>
+#include <QDebug>
 #include <QThread>
 
 Q_DECLARE_METATYPE(vtkSmartPointer<vtkImageData>)
@@ -171,8 +172,6 @@ signals:
 void HistogramMaker::makeHistogram(vtkSmartPointer<vtkImageData> input,
                                    vtkSmartPointer<vtkTable> output)
 {
-  // make the histogram and notify observers (the main thread) that it
-  // is done.
   if (input && output) {
     PopulateHistogram(input, output);
   }
@@ -229,7 +228,41 @@ void HistogramManager::finalize()
   m_worker = nullptr;
   m_histogramCache.clear();
   m_histogram2DCache.clear();
+  m_histogramCacheLRU.clear();
+  m_histogram2DCacheLRU.clear();
 }
+
+void HistogramManager::clearCaches()
+{
+  // Don't touch the in-progress lists: the background thread still holds
+  // vtkSmartPointer refs to those inputs, and the ready-slot will repopulate
+  // the cache when it fires. That late insert is harmless — the next reset
+  // (or app exit) will drop it.
+  m_histogramCache.clear();
+  m_histogram2DCache.clear();
+  m_histogramCacheLRU.clear();
+  m_histogram2DCacheLRU.clear();
+}
+
+namespace {
+// LRU cap on the number of cached histograms. Live operator
+// reconstructions can produce hundreds of intermediate vtkImageDatas;
+// the cache keeps each one alive (smart pointer key) so we cap how
+// many we hold to bound memory.
+constexpr int kCacheLimit = 16;
+
+template <typename CacheT>
+void touchLRU(QList<vtkSmartPointer<vtkImageData>>& order, CacheT& cache,
+              const vtkSmartPointer<vtkImageData>& key)
+{
+  order.removeOne(key);
+  order.prepend(key);
+  while (order.size() > kCacheLimit) {
+    auto evict = order.takeLast();
+    cache.remove(evict);
+  }
+}
+} // namespace
 
 HistogramManager& HistogramManager::instance()
 {
@@ -243,10 +276,12 @@ vtkSmartPointer<vtkTable> HistogramManager::getHistogram(
   if (m_histogramCache.contains(image)) {
     auto cachedTable = m_histogramCache[image];
     if (cachedTable->GetMTime() > image->GetMTime()) {
+      touchLRU(m_histogramCacheLRU, m_histogramCache, image);
       return cachedTable;
     } else {
       // Need to recalculate, clear the plots, and remove the cached data.
       m_histogramCache.remove(image);
+      m_histogramCacheLRU.removeOne(image);
     }
   }
   if (m_histogramsInProgress.contains(image)) {
@@ -255,14 +290,13 @@ vtkSmartPointer<vtkTable> HistogramManager::getHistogram(
   }
   auto table = vtkSmartPointer<vtkTable>::New();
   m_histogramsInProgress.append(image);
-  vtkSmartPointer<vtkImageData> const imageSP = image;
 
   // This fakes a Qt signal to the background thread (without exposing the
   // class internals as a signal).  The background thread will then call
   // makeHistogram on the HistogramMaker object with the parameters we
   // gave here.
   QMetaObject::invokeMethod(m_histogramGen, "makeHistogram",
-                            Q_ARG(vtkSmartPointer<vtkImageData>, imageSP),
+                            Q_ARG(vtkSmartPointer<vtkImageData>, image),
                             Q_ARG(vtkSmartPointer<vtkTable>, table));
 
   // The histogram cannot be returned for use while the background thread is
@@ -276,10 +310,12 @@ vtkSmartPointer<vtkImageData> HistogramManager::getHistogram2D(
   if (m_histogram2DCache.contains(image)) {
     auto cachedHistogram = m_histogram2DCache[image];
     if (cachedHistogram->GetMTime() > image->GetMTime()) {
+      touchLRU(m_histogram2DCacheLRU, m_histogram2DCache, image);
       return cachedHistogram;
     } else {
       // Need to recalculate, clear the plots, and remove the cached data.
       m_histogram2DCache.remove(image);
+      m_histogram2DCacheLRU.removeOne(image);
     }
   }
   if (m_histogram2DsInProgress.contains(image)) {
@@ -288,14 +324,13 @@ vtkSmartPointer<vtkImageData> HistogramManager::getHistogram2D(
   }
   auto histogram = vtkSmartPointer<vtkImageData>::New();
   m_histogram2DsInProgress.append(image);
-  vtkSmartPointer<vtkImageData> const imageSP = image;
 
   // This fakes a Qt signal to the background thread (without exposing the
   // class internals as a signal).  The background thread will then call
   // makeHistogram on the HistogramMaker object with the parameters we
   // gave here.
   QMetaObject::invokeMethod(m_histogramGen, "makeHistogram2D",
-                            Q_ARG(vtkSmartPointer<vtkImageData>, imageSP),
+                            Q_ARG(vtkSmartPointer<vtkImageData>, image),
                             Q_ARG(vtkSmartPointer<vtkImageData>, histogram));
   // The histogram cannot be returned for use while the background thread is
   // populating it.
@@ -306,6 +341,7 @@ void HistogramManager::histogramReadyInternal(
   vtkSmartPointer<vtkImageData> image, vtkSmartPointer<vtkTable> histogram)
 {
   m_histogramCache[image] = histogram;
+  touchLRU(m_histogramCacheLRU, m_histogramCache, image);
   m_histogramsInProgress.removeAll(image);
   emit this->histogramReady(image, histogram);
 }
@@ -314,6 +350,7 @@ void HistogramManager::histogram2DReadyInternal(
   vtkSmartPointer<vtkImageData> image, vtkSmartPointer<vtkImageData> histogram)
 {
   m_histogram2DCache[image] = histogram;
+  touchLRU(m_histogram2DCacheLRU, m_histogram2DCache, image);
   m_histogram2DsInProgress.removeAll(image);
   emit this->histogram2DReady(image, histogram);
 }

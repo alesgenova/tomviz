@@ -1,10 +1,12 @@
 {
   "externalCompatible": false,
-  "results" : [
+  "results": [
     {
-      "name" : "molecule",
-      "label" : "Reconstructed atomic positions",
-      "type" : "molecule"
+      "name": "molecule",
+      "label": "Reconstructed atomic positions",
+      "type": "molecule"
     }
-  ]
+  ],
+  "inputType": "ImageData",
+  "outputType": "ImageData"
 }

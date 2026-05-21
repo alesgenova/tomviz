@@ -1,0 +1,67 @@
+{
+  "name": "CylindricalCrop",
+  "label": "Cylindrical Crop",
+  "description": "Crop a volume to a cylindrical region. Voxels outside the cylinder are set to a fill value. The cylinder axis can be oriented arbitrarily.",
+  "widget": "CylindricalCropWidget",
+  "parameters": [
+    {
+      "name": "center_x",
+      "label": "Center X",
+      "description": "X coordinate of a point on the cylinder axis (voxels). Default: volume center.",
+      "type": "double",
+      "default": -1.0
+    },
+    {
+      "name": "center_y",
+      "label": "Center Y",
+      "description": "Y coordinate of a point on the cylinder axis (voxels). Default: volume center.",
+      "type": "double",
+      "default": -1.0
+    },
+    {
+      "name": "center_z",
+      "label": "Center Z",
+      "description": "Z coordinate of a point on the cylinder axis (voxels). Default: volume center.",
+      "type": "double",
+      "default": -1.0
+    },
+    {
+      "name": "axis_x",
+      "label": "Axis X",
+      "description": "X component of the cylinder axis direction.",
+      "type": "double",
+      "default": 0.0
+    },
+    {
+      "name": "axis_y",
+      "label": "Axis Y",
+      "description": "Y component of the cylinder axis direction.",
+      "type": "double",
+      "default": 0.0
+    },
+    {
+      "name": "axis_z",
+      "label": "Axis Z",
+      "description": "Z component of the cylinder axis direction.",
+      "type": "double",
+      "default": 1.0
+    },
+    {
+      "name": "radius",
+      "label": "Radius",
+      "description": "Cylinder radius in voxels. Default: half the smallest dimension perpendicular to axis.",
+      "type": "double",
+      "default": -1.0,
+      "minimum": 0.0
+    },
+    {
+      "name": "fill_value",
+      "label": "Fill Value",
+      "description": "Value assigned to voxels outside the cylinder.",
+      "type": "double",
+      "default": 0.0
+    }
+  ],
+  "inputType": "ImageData",
+  "outputType": "ImageData"
+}

@@ -211,11 +211,19 @@ public:
 
 struct OperatorDescription
 {
+  enum class Type
+  {
+    Source,
+    Transform,
+    LegacyTransform,
+  };
+
   QString label;
   QString pythonPath;
   QString jsonPath;
   QString loadError;
   bool valid = true;
+  Type type = Type::LegacyTransform;
 };
 
 std::vector<OperatorDescription> findCustomOperators(const QString& path);

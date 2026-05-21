@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   id="Layer_1"
+   data-name="Layer 1"
+   viewBox="0 0 64 64"
+   version="1.1"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs188" />
+  <rect
+     x="12.4"
+     y="9.4200001"
+     width="39.470001"
+     height="45.380005"
+     style="display:inline;fill:#d2a58c;fill-opacity:1"
+     id="rect177" />
+  <path
+     d="M 51.85,55.93 H 12.4 c -0.624082,0 -1.13,-0.505918 -1.13,-1.13 V 9.42 c 0.0055,-0.620173 0.509803,-1.1200243 1.13,-1.12 h 39.45 c 0.627978,-0.01114 1.144541,0.4919465 1.15,1.12 V 54.8 c 9.9e-5,0.631976 -0.518123,1.141185 -1.15,1.13 z M 13.53,53.68 H 50.72 V 10.55 H 13.53 Z"
+     style="display:inline;fill:#6f6f59"
+     id="path179" />
+</svg>

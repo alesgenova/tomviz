@@ -19,8 +19,8 @@
 #include <vtkNew.h>
 #include <vtkTable.h>
 
-#include "modules/ModulePlot.h"
-#include "operators/OperatorResult.h"
+#include "legacy/modules/ModulePlot.h"
+#include "legacy/operators/OperatorResult.h"
 
 using namespace tomviz;
 

@@ -1,11 +1,14 @@
-find_package(TBB)
+find_package(TBB REQUIRED)
 
 set(CMAKE_MODULE_LINKER_FLAGS "")
 pybind11_add_module(_wrapping
-  OperatorPythonWrapper.cxx
-  PipelineStateManager.cxx
+  ../legacy/pybind11/PipelineStateManager.cxx
   PythonTypeConversions.cxx
   Wrapping.cxx)
+target_include_directories(_wrapping PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../legacy/pybind11
+  ${CMAKE_CURRENT_SOURCE_DIR}/../legacy/core
+  ${CMAKE_CURRENT_SOURCE_DIR}/../core)
 target_link_libraries(_wrapping
   PRIVATE tomvizcore VTK::CommonDataModel VTK::WrappingPythonCore)
 
@@ -25,11 +28,9 @@ pybind11_add_module(ctvlib
   ctvlib/eigenConversion.h
   ctvlib/WrappingCtvlib.cxx)
 target_link_libraries(ctvlib
-  PRIVATE tomvizcore VTK::eigen ${TBB_LIBRARIES})
+  PRIVATE tomvizcore VTK::eigen TBB::tbb)
 
 add_dependencies(ctvlib VTK::eigen)
-
-include_directories(ctvlib ${TBB_INCLUDE_DIR})
 
 set_target_properties(ctvlib PROPERTIES
   LIBRARY_OUTPUT_DIRECTORY "${tomviz_python_binary_dir}/tomviz/_realtime"

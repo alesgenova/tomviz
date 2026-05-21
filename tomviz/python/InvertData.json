@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 2,
+  "name": "InvertData",
+  "label": "Invert Data",
+  "description": "Invert the scalar values so that max becomes min and vice versa.",
+  "inputs":  [{"name": "volume", "type": "ImageData"}],
+  "outputs": [{"name": "volume", "type": "ImageData"}],
+  "parameters": [],
+  "supportsCancel": true
+}

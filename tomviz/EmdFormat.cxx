@@ -3,7 +3,7 @@
 
 #include "EmdFormat.h"
 
-#include "DataSource.h"
+#include "legacy/DataSource.h"
 #include "GenericHDF5Format.h"
 #include "Utilities.h"
 
@@ -157,6 +157,17 @@ bool EmdFormat::readNode(h5::H5ReadWrite& reader, const std::string& emdNode,
     relabelXAndZAxes(image);
     DataSource::setTiltAngles(image, angles);
     DataSource::setType(image, DataSource::TiltSeries);
+  }
+
+  // /data carries the first scalar in insertion order; the true
+  // active is in active_scalar_name when it differs. Files without
+  // the attr leave the active as /data.
+  if (reader.hasAttribute(emdNode, "active_scalar_name")) {
+    auto activeName =
+      reader.attribute<std::string>(emdNode, "active_scalar_name", &ok);
+    if (ok && !activeName.empty()) {
+      image->GetPointData()->SetActiveScalars(activeName.c_str());
+    }
   }
 
   // Read scan IDs if present

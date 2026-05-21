@@ -4,7 +4,7 @@
 #include "ConformVolumeDialog.h"
 #include "ui_ConformVolumeDialog.h"
 
-#include "DataSource.h"
+#include "legacy/DataSource.h"
 
 namespace tomviz {
 

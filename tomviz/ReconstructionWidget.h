@@ -6,25 +6,23 @@
 
 #include <QWidget>
 
+class vtkImageData;
+class vtkSMProxy;
+
 namespace tomviz {
-class DataSource;
 
 class ReconstructionWidget : public QWidget
 {
   Q_OBJECT
 
 public:
-  ReconstructionWidget(DataSource* source, QWidget* parent = nullptr);
+  ReconstructionWidget(vtkImageData* inputData, vtkSMProxy* colorMap,
+                       QWidget* parent = nullptr);
   ~ReconstructionWidget() override;
 
 public slots:
-  void startReconstruction();
   void updateProgress(int progress);
   void updateIntermediateResults(std::vector<float> reconSlice);
-
-signals:
-  void reconstructionFinished();
-  void reconstructionCancelled();
 
 private:
   Q_DISABLE_COPY(ReconstructionWidget)

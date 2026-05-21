@@ -1,30 +1,65 @@
 {
-  "name" : "TomoPy",
-  "label" : "TomoPy Reconstruction",
-  "description" : "Run TomoPy reconstruction on a dataset",
-  "parameters" : [
+  "name": "TomoPy",
+  "label": "TomoPy Reconstruction",
+  "description": "Run TomoPy reconstruction on a dataset",
+  "parameters": [
     {
-      "name" : "algorithm",
-      "label" : "Algorithm",
-      "description" : "Reconstruction algorithm to use",
-      "type" : "enumeration",
-      "default" : 0,
-      "options" : [
-        {"Gridrec" : "gridrec"},
-        {"FBP" : "fbp"},
-        {"MLEM" : "mlem"},
-        {"OSPML Hybrid" : "ospml_hybrid"}
+      "name": "algorithm",
+      "label": "Algorithm",
+      "description": "Reconstruction algorithm to use",
+      "type": "enumeration",
+      "default": 0,
+      "options": [
+        {
+          "Gridrec": "gridrec"
+        },
+        {
+          "FBP": "fbp"
+        },
+        {
+          "SIRT": "sirt"
+        },
+        {
+          "ART": "art"
+        },
+        {
+          "TV": "tv"
+        },
+        {
+          "MLEM": "mlem"
+        },
+        {
+          "OSPML Hybrid": "ospml_hybrid"
+        }
       ]
     },
     {
-      "name" : "num_iter",
-      "label" : "Number of Iterations",
-      "description" : "Number of iterations (iterative methods only)",
-      "type" : "int",
-      "default" : 5,
-      "minimum" : 1,
-      "maximum" : 1000,
-      "visible_if" : "algorithm == 'mlem' or algorithm == 'ospml_hybrid'"
+      "name": "num_iter",
+      "label": "Number of Iterations",
+      "description": "Number of iterations (iterative methods only)",
+      "type": "int",
+      "default": 5,
+      "minimum": 1,
+      "maximum": 1000,
+      "visible_if": "algorithm == 'sirt' or algorithm == 'art' or algorithm == 'tv' or algorithm == 'mlem' or algorithm == 'ospml_hybrid'"
+    },
+    {
+      "name": "reg_par",
+      "label": "Regularization",
+      "description": "Regularization parameter controlling smoothness (TV only)",
+      "type": "double",
+      "default": 0.1,
+      "minimum": 0.0001,
+      "maximum": 10.0,
+      "visible_if": "algorithm == 'tv'"
+    },
+    {
+      "name": "use_gpu",
+      "label": "Use GPU (CUDA)",
+      "description": "Use GPU acceleration via CUDA (requires a CUDA-capable GPU)",
+      "type": "bool",
+      "default": false,
+      "visible_if": "algorithm == 'sirt' or algorithm == 'mlem'"
     }
   ],
   "children": [
@@ -34,7 +69,9 @@
       "type": "reconstruction"
     }
   ],
-  "help" : {
+  "help": {
     "url": "reconstruction/#tomopy"
-  }
+  },
+  "inputType": "TiltSeries",
+  "outputType": "Volume"
 }

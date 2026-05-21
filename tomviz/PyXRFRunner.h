@@ -4,7 +4,7 @@
 #ifndef tomvizPyXRFRunner_h
 #define tomvizPyXRFRunner_h
 
-#include <QDialog>
+#include <QObject>
 #include <QScopedPointer>
 
 namespace tomviz {

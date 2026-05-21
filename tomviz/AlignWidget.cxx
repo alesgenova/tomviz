@@ -5,13 +5,14 @@
 
 #include "ActiveObjects.h"
 #include "ColorMap.h"
-#include "DataSource.h"
 #include "LoadDataReaction.h"
 #include "PresetDialog.h"
 #include "QVTKGLWidget.h"
 #include "SpinBox.h"
-#include "TranslateAlignOperator.h"
 #include "Utilities.h"
+#include "pipeline/InputPort.h"
+#include "pipeline/data/VolumeData.h"
+#include "pipeline/transforms/TranslateAlignTransform.h"
 
 #include <pqView.h>
 #include <vtkPVArrayInformation.h>
@@ -346,9 +347,9 @@ private:
   vtkIdType m_ySize;
 };
 
-AlignWidget::AlignWidget(TranslateAlignOperator* op,
+AlignWidget::AlignWidget(pipeline::TranslateAlignTransform* op,
                          vtkSmartPointer<vtkImageData> imageData, QWidget* p)
-  : EditOperatorWidget(p)
+  : pipeline::EditNodeWidget(p)
 {
   m_timer = new QTimer(this);
   m_operator = op;
@@ -369,8 +370,18 @@ AlignWidget::AlignWidget(TranslateAlignOperator* op,
   setMinimumHeight(600);
   setWindowTitle("Align data");
 
-  // Grab the image data from the data source...
-  vtkSMProxy* lut = op->getDataSource()->colorMap();
+  // Get the LUT from the input VolumeData on the transform's input port
+  vtkSMProxy* lut = nullptr;
+  auto* inputPort = op->inputPorts()[0];
+  if (inputPort && inputPort->hasData()) {
+    try {
+      auto vol = inputPort->data().value<pipeline::VolumeDataPtr>();
+      if (vol) {
+        lut = vol->colorMap();
+      }
+    } catch (const std::bad_any_cast&) {
+    }
+  }
 
   // Set up the rendering pipeline
   if (imageData) {

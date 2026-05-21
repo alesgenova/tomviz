@@ -1,12 +1,11 @@
 /* This source file is part of the Tomviz project, https://tomviz.org/.
    It is released under the 3-Clause BSD License, see "LICENSE". */
 
-#include "OperatorPythonWrapper.h"
 #include "PybindVTKTypeCaster.h"
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 
-#include "core/DataSourceBase.h"
+#include "../legacy/core/DataSourceBase.h"
 
 #include "PipelineStateManager.h"
 #include "PythonTypeConversions.h"
@@ -22,20 +21,6 @@ PYBIND11_VTK_TYPECASTER(vtkImageData)
 PYBIND11_MODULE(_wrapping, m)
 {
   m.doc() = "tomviz wrapped classes";
-
-  py::class_<OperatorPythonWrapper>(m, "OperatorPythonWrapper")
-    .def(py::init([](void* op) { return new OperatorPythonWrapper(op); }))
-    .def_property_readonly("canceled", &OperatorPythonWrapper::canceled)
-    .def_property_readonly("completed", &OperatorPythonWrapper::completed)
-    .def_property("progress_maximum",
-                  &OperatorPythonWrapper::totalProgressSteps,
-                  &OperatorPythonWrapper::setTotalProgressSteps)
-    .def_property("progress_value", &OperatorPythonWrapper::progressStep,
-                  &OperatorPythonWrapper::setProgressStep)
-    .def_property("progress_message", &OperatorPythonWrapper::progressMessage,
-                  &OperatorPythonWrapper::setProgressMessage)
-    .def_property("progress_data", &OperatorPythonWrapper::progressData,
-                  &OperatorPythonWrapper::setProgressData);
 
   py::class_<tomviz::DataSourceBase>(m, "DataSource")
     .def_property_readonly("dark_data", &DataSourceBase::darkData,

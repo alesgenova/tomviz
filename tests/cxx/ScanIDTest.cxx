@@ -6,7 +6,7 @@
 #include <vtkDataObject.h>
 #include <vtkSmartPointer.h>
 
-#include "DataSource.h"
+#include "legacy/DataSource.h"
 #include "TomvizTest.h"
 
 using namespace tomviz;

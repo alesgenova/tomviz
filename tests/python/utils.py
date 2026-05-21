@@ -7,9 +7,9 @@ import shutil
 import urllib.request
 import zipfile
 
-from tomviz.executor import OperatorWrapper
 from tomviz.operators import Operator
-from tomviz._internal import add_transform_decorators
+from tomviz.nodes import Node
+from tomviz._internal import OperatorWrapper, add_transform_decorators
 
 OPERATOR_PATH = Path(__file__).parent.parent.parent / 'tomviz/python'
 
@@ -54,6 +54,14 @@ def load_operator_class(operator_module: ModuleType) -> Operator | None:
             operator._operator_wrapper = OperatorWrapper()
 
             return operator
+
+
+def load_node_class(operator_module: ModuleType) -> Node | None:
+    for v in operator_module.__dict__.values():
+        if inspect.isclass(v) and issubclass(v, Node) and v is not Node:
+            node = v()
+            node._operator_wrapper = OperatorWrapper()
+            return node
 
 
 def download_file(url: str, destination: str):

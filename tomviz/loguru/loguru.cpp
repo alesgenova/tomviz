@@ -54,6 +54,11 @@
 
 #ifdef _WIN32
 	#include <direct.h>
+	#define WIN32_LEAN_AND_MEAN
+	#define NOMINMAX
+	#include <windows.h>
+	#include <dbghelp.h>
+	#include <shlobj.h>
 
 	#define localtime_r(a, b) localtime_s(b, a) // No localtime_r with MSVC, but arguments are swapped for localtime_s
 #else
@@ -1900,10 +1905,279 @@ namespace loguru
 
 #ifdef _WIN32
 namespace loguru {
+
+	static bool create_directory_recursive(const wchar_t* path)
+	{
+		DWORD attrs = GetFileAttributesW(path);
+		if (attrs != INVALID_FILE_ATTRIBUTES) {
+			return (attrs & FILE_ATTRIBUTE_DIRECTORY) != 0;
+		}
+
+		wchar_t parent[MAX_PATH];
+		wcscpy_s(parent, path);
+		wchar_t* last_sep = wcsrchr(parent, L'\\');
+		if (!last_sep) last_sep = wcsrchr(parent, L'/');
+		if (last_sep) {
+			*last_sep = L'\0';
+			if (!create_directory_recursive(parent)) return false;
+		}
+
+		return CreateDirectoryW(path, NULL) || GetLastError() == ERROR_ALREADY_EXISTS;
+	}
+
+	static bool get_crash_dump_dir(wchar_t* out_path, size_t max_len)
+	{
+		wchar_t appdata[MAX_PATH];
+		if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, appdata))) {
+			_snwprintf_s(out_path, max_len, _TRUNCATE, L"%s\\tomviz\\crashes", appdata);
+			return create_directory_recursive(out_path);
+		}
+		return false;
+	}
+
+	static const char* exception_code_name(DWORD code)
+	{
+		switch (code) {
+			case EXCEPTION_ACCESS_VIOLATION:      return "EXCEPTION_ACCESS_VIOLATION";
+			case EXCEPTION_ARRAY_BOUNDS_EXCEEDED:  return "EXCEPTION_ARRAY_BOUNDS_EXCEEDED";
+			case EXCEPTION_BREAKPOINT:             return "EXCEPTION_BREAKPOINT";
+			case EXCEPTION_DATATYPE_MISALIGNMENT:  return "EXCEPTION_DATATYPE_MISALIGNMENT";
+			case EXCEPTION_FLT_DENORMAL_OPERAND:   return "EXCEPTION_FLT_DENORMAL_OPERAND";
+			case EXCEPTION_FLT_DIVIDE_BY_ZERO:     return "EXCEPTION_FLT_DIVIDE_BY_ZERO";
+			case EXCEPTION_FLT_INEXACT_RESULT:     return "EXCEPTION_FLT_INEXACT_RESULT";
+			case EXCEPTION_FLT_INVALID_OPERATION:  return "EXCEPTION_FLT_INVALID_OPERATION";
+			case EXCEPTION_FLT_OVERFLOW:           return "EXCEPTION_FLT_OVERFLOW";
+			case EXCEPTION_FLT_STACK_CHECK:        return "EXCEPTION_FLT_STACK_CHECK";
+			case EXCEPTION_FLT_UNDERFLOW:          return "EXCEPTION_FLT_UNDERFLOW";
+			case EXCEPTION_GUARD_PAGE:             return "EXCEPTION_GUARD_PAGE";
+			case EXCEPTION_ILLEGAL_INSTRUCTION:    return "EXCEPTION_ILLEGAL_INSTRUCTION";
+			case EXCEPTION_IN_PAGE_ERROR:          return "EXCEPTION_IN_PAGE_ERROR";
+			case EXCEPTION_INT_DIVIDE_BY_ZERO:     return "EXCEPTION_INT_DIVIDE_BY_ZERO";
+			case EXCEPTION_INT_OVERFLOW:           return "EXCEPTION_INT_OVERFLOW";
+			case EXCEPTION_INVALID_DISPOSITION:    return "EXCEPTION_INVALID_DISPOSITION";
+			case EXCEPTION_NONCONTINUABLE_EXCEPTION: return "EXCEPTION_NONCONTINUABLE_EXCEPTION";
+			case EXCEPTION_PRIV_INSTRUCTION:       return "EXCEPTION_PRIV_INSTRUCTION";
+			case EXCEPTION_SINGLE_STEP:            return "EXCEPTION_SINGLE_STEP";
+			case EXCEPTION_STACK_OVERFLOW:         return "EXCEPTION_STACK_OVERFLOW";
+			default:                               return "UNKNOWN_EXCEPTION";
+		}
+	}
+
+	static LONG WINAPI windows_exception_handler(EXCEPTION_POINTERS* exception_info)
+	{
+		DWORD code = exception_info->ExceptionRecord->ExceptionCode;
+
+		// Skip C++ exceptions (0xE06D7363 = "msc" in little-endian) and
+		// non-fatal exceptions like OUTPUT_DEBUG_STRING
+		if (code == 0xE06D7363 || (code & 0x80000000) == 0) {
+			return EXCEPTION_CONTINUE_SEARCH;
+		}
+
+		wchar_t crash_dir[MAX_PATH];
+		if (!get_crash_dump_dir(crash_dir, MAX_PATH)) {
+			return EXCEPTION_CONTINUE_SEARCH;
+		}
+
+		SYSTEMTIME st;
+		GetLocalTime(&st);
+
+		// Write minidump
+		wchar_t dump_path[MAX_PATH];
+		_snwprintf_s(dump_path, MAX_PATH, _TRUNCATE,
+			L"%s\\tomviz_%04d%02d%02d_%02d%02d%02d.dmp",
+			crash_dir, st.wYear, st.wMonth, st.wDay,
+			st.wHour, st.wMinute, st.wSecond);
+
+		HANDLE dump_file = CreateFileW(dump_path, GENERIC_WRITE, 0, NULL,
+			CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+
+		if (dump_file != INVALID_HANDLE_VALUE) {
+			MINIDUMP_EXCEPTION_INFORMATION mei;
+			mei.ThreadId = GetCurrentThreadId();
+			mei.ExceptionPointers = exception_info;
+			mei.ClientPointers = FALSE;
+
+			MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(),
+				dump_file,
+				static_cast<MINIDUMP_TYPE>(MiniDumpWithDataSegs | MiniDumpWithHandleData),
+				&mei, NULL, NULL);
+			CloseHandle(dump_file);
+		}
+
+		// Write human-readable crash log
+		wchar_t log_path[MAX_PATH];
+		_snwprintf_s(log_path, MAX_PATH, _TRUNCATE,
+			L"%s\\tomviz_%04d%02d%02d_%02d%02d%02d.log",
+			crash_dir, st.wYear, st.wMonth, st.wDay,
+			st.wHour, st.wMinute, st.wSecond);
+
+		HANDLE log_file = CreateFileW(log_path, GENERIC_WRITE, 0, NULL,
+			CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+
+		if (log_file != INVALID_HANDLE_VALUE) {
+			char buf[2048];
+			int len = 0;
+
+			len += sprintf_s(buf + len, sizeof(buf) - len,
+				"Tomviz Crash Report\r\n");
+			len += sprintf_s(buf + len, sizeof(buf) - len,
+				"====================\r\n\r\n");
+			len += sprintf_s(buf + len, sizeof(buf) - len,
+				"Time: %04d-%02d-%02d %02d:%02d:%02d\r\n",
+				st.wYear, st.wMonth, st.wDay,
+				st.wHour, st.wMinute, st.wSecond);
+			len += sprintf_s(buf + len, sizeof(buf) - len,
+				"Exception Code: 0x%08lX (%s)\r\n",
+				code, exception_code_name(code));
+			len += sprintf_s(buf + len, sizeof(buf) - len,
+				"Exception Address: 0x%p\r\n",
+				exception_info->ExceptionRecord->ExceptionAddress);
+
+			if (code == EXCEPTION_ACCESS_VIOLATION &&
+				exception_info->ExceptionRecord->NumberParameters >= 2) {
+				const char* op = exception_info->ExceptionRecord->ExceptionInformation[0] == 0
+					? "reading" : "writing";
+				len += sprintf_s(buf + len, sizeof(buf) - len,
+					"Access violation %s address: 0x%llX\r\n",
+					op, (unsigned long long)exception_info->ExceptionRecord->ExceptionInformation[1]);
+			}
+
+			DWORD written;
+			WriteFile(log_file, buf, (DWORD)len, &written, NULL);
+			CloseHandle(log_file);
+		}
+
+		// Walk the stack into a reusable buffer
+		char stack_buf[8192];
+		int stack_len = 0;
+		int num_frames = 0;
+		{
+			HANDLE process = GetCurrentProcess();
+			HANDLE thread = GetCurrentThread();
+			SymInitialize(process, NULL, TRUE);
+
+			CONTEXT ctx = *exception_info->ContextRecord;
+			STACKFRAME64 frame = {};
+			frame.AddrPC.Offset = ctx.Rip;
+			frame.AddrPC.Mode = AddrModeFlat;
+			frame.AddrFrame.Offset = ctx.Rbp;
+			frame.AddrFrame.Mode = AddrModeFlat;
+			frame.AddrStack.Offset = ctx.Rsp;
+			frame.AddrStack.Mode = AddrModeFlat;
+
+			char sym_buf[sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR)];
+			SYMBOL_INFO* symbol = (SYMBOL_INFO*)sym_buf;
+			symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+			symbol->MaxNameLen = MAX_SYM_NAME;
+
+			for (int i = 0; i < 64; ++i) {
+				if (!StackWalk64(IMAGE_FILE_MACHINE_AMD64, process, thread,
+					&frame, &ctx, NULL,
+					SymFunctionTableAccess64, SymGetModuleBase64, NULL)) {
+					break;
+				}
+				if (frame.AddrPC.Offset == 0) break;
+
+				DWORD64 displacement = 0;
+				int remaining = (int)sizeof(stack_buf) - stack_len - 1;
+				if (remaining < 128) break;
+
+				// Get module name
+				HMODULE hModule = NULL;
+				char mod_name[MAX_PATH] = "???";
+				if (GetModuleHandleExA(
+					GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+					GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+					(LPCSTR)(uintptr_t)frame.AddrPC.Offset, &hModule)) {
+					GetModuleFileNameA(hModule, mod_name, MAX_PATH);
+					char* slash = strrchr(mod_name, '\\');
+					if (slash) memmove(mod_name, slash + 1, strlen(slash + 1) + 1);
+				}
+
+				if (SymFromAddr(process, frame.AddrPC.Offset, &displacement, symbol)) {
+					IMAGEHLP_LINE64 file_line = {};
+					file_line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
+					DWORD line_disp = 0;
+					if (SymGetLineFromAddr64(process, frame.AddrPC.Offset, &line_disp, &file_line)) {
+						stack_len += sprintf_s(stack_buf + stack_len, remaining,
+							"  [%2d] %s!%s+0x%llX (%s:%lu)\r\n",
+							i, mod_name, symbol->Name,
+							(unsigned long long)displacement,
+							file_line.FileName, file_line.LineNumber);
+					} else {
+						stack_len += sprintf_s(stack_buf + stack_len, remaining,
+							"  [%2d] %s!%s+0x%llX\r\n",
+							i, mod_name, symbol->Name,
+							(unsigned long long)displacement);
+					}
+				} else {
+					stack_len += sprintf_s(stack_buf + stack_len, remaining,
+						"  [%2d] %s!0x%llX\r\n",
+						i, mod_name,
+						(unsigned long long)frame.AddrPC.Offset);
+				}
+				num_frames++;
+			}
+
+			SymCleanup(process);
+		}
+
+		// Append stack trace to the log file
+		HANDLE log_reopen = CreateFileW(log_path, FILE_APPEND_DATA, 0, NULL,
+			OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+		if (log_reopen != INVALID_HANDLE_VALUE) {
+			DWORD written;
+			const char* hdr = "\r\nStack Trace:\r\n";
+			WriteFile(log_reopen, hdr, (DWORD)strlen(hdr), &written, NULL);
+			WriteFile(log_reopen, stack_buf, (DWORD)stack_len, &written, NULL);
+			const char* footer =
+				"\r\nA minidump file has been saved alongside this log.\r\n"
+				"Please send both files to the tomviz developers for analysis.\r\n";
+			WriteFile(log_reopen, footer, (DWORD)strlen(footer), &written, NULL);
+			CloseHandle(log_reopen);
+		}
+
+		// Show dialog with stack trace (truncated to first 8 frames for display)
+		const char* code_name = exception_code_name(code);
+		wchar_t wcode_name[64];
+		MultiByteToWideChar(CP_UTF8, 0, code_name, -1, wcode_name, 64);
+
+		// Convert stack trace to wide chars, truncated to first 8 frames
+		// (most recent / crash-site frames) for display
+		char display_stack[8192];
+		int display_len = 0;
+		int display_frames = 0;
+		const int max_display_frames = 8;
+		for (int i = 0; i < stack_len && display_frames < max_display_frames; ++i) {
+			display_stack[display_len++] = stack_buf[i];
+			if (stack_buf[i] == '\n') display_frames++;
+		}
+		if (num_frames > max_display_frames) {
+			display_len += sprintf_s(display_stack + display_len,
+				sizeof(display_stack) - display_len,
+				"  ... (%d more frames in log file)\r\n",
+				num_frames - max_display_frames);
+		}
+		display_stack[display_len] = '\0';
+		wchar_t wstack[4096];
+		MultiByteToWideChar(CP_UTF8, 0, display_stack, -1, wstack, 4096);
+
+		wchar_t wmsg[5120];
+		_snwprintf_s(wmsg, 5120, _TRUNCATE,
+			L"Tomviz has crashed (%s).\n\n"
+			L"Stack Trace:\n%s\n"
+			L"Crash dump files have been saved to:\n%s\n\n"
+			L"Please send these files to the developers.",
+			wcode_name, wstack, crash_dir);
+		MessageBoxW(NULL, wmsg, L"Tomviz Crash", MB_OK | MB_ICONERROR);
+
+		return EXCEPTION_EXECUTE_HANDLER;
+	}
+
 	void install_signal_handlers(const SignalOptions& signal_options)
 	{
-		(void)signal_options;
-		// TODO: implement signal handlers on windows
+		s_signal_options = signal_options;
+		SetUnhandledExceptionFilter(windows_exception_handler);
 	}
 } // namespace loguru
 

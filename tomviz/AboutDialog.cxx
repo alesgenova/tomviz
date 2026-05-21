@@ -4,9 +4,7 @@
 #include "AboutDialog.h"
 #include "ui_AboutDialog.h"
 
-#include "pqApplicationCore.h"
-#include "pqServerManagerModel.h"
-#include "pqServer.h"
+#include "ActiveObjects.h"
 
 #include "PythonUtilities.h"
 #include "tomvizConfig.h"
@@ -16,8 +14,7 @@
 #include <vtkNew.h>
 #include <vtkRenderWindow.h>
 #include "vtkPVOpenGLInformation.h"
-#include "vtkPVRenderingCapabilitiesInformation.h"
-#include "vtkSMSession.h"
+#include "vtkSMViewProxy.h"
 
 #include <QString>
 #include <QTreeWidget>
@@ -38,26 +35,21 @@ void buildJson(QJsonObject& details)
   details["qtVersion"] = QString(QT_VERSION_STR);
 }
 
-// Get OpenGL information, focus on VTK's view.
+// Get OpenGL information from the existing render window to avoid creating a
+// new offscreen window (which can cause GLX BadAccess errors).
 void buildOpenGL(QJsonObject& details)
 {
-  pqServerManagerModel* smmodel = pqApplicationCore::instance()->getServerManagerModel();
-  QList<pqServer*> servers = smmodel->findItems<pqServer*>();
-  if (!servers.empty())
-  {
-    vtkSMSession* session = servers[0]->session();
-    vtkNew<vtkPVRenderingCapabilitiesInformation> renInfo;
-    session->GatherInformation(vtkPVSession::RENDER_SERVER, renInfo.GetPointer(), 0);
-    if (renInfo->Supports(vtkPVRenderingCapabilitiesInformation::RENDERING))
-    {
-      vtkNew<vtkPVOpenGLInformation> OpenGLInfo;
-      session->GatherInformation(vtkPVSession::RENDER_SERVER, OpenGLInfo.GetPointer(), 0);
-      details["openglVendor"] = QString::fromStdString(OpenGLInfo->GetVendor());
-      details["openglVersion"] = QString::fromStdString(OpenGLInfo->GetVersion());
-      details["openglRenderer"] = QString::fromStdString(OpenGLInfo->GetRenderer());
-      details["openglShaderVersion"] = QString("unknown");
-    }
+  auto* view = ActiveObjects::instance().activeView();
+  if (!view || !view->GetRenderWindow()) {
+    return;
   }
+
+  vtkNew<vtkPVOpenGLInformation> openGLInfo;
+  openGLInfo->CopyFromObject(view->GetRenderWindow());
+  details["openglVendor"] = QString::fromStdString(openGLInfo->GetVendor());
+  details["openglVersion"] = QString::fromStdString(openGLInfo->GetVersion());
+  details["openglRenderer"] = QString::fromStdString(openGLInfo->GetRenderer());
+  details["openglShaderVersion"] = QString("unknown");
 }
 
 void buildPython(QJsonObject& details)

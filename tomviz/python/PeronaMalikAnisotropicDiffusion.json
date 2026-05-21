@@ -1,30 +1,32 @@
 {
-  "name" : "PeronaMalikAnisotropicDiffusion",
-  "label" : "Perona-Malik Anistropic Diffusion",
-  "description" : "This filter performs anisotropic diffusion on an image using the classic Perona-Malik, gradient magnitude-based equation.",
+  "name": "PeronaMalikAnisotropicDiffusion",
+  "label": "Perona-Malik Anistropic Diffusion",
+  "description": "This filter performs anisotropic diffusion on an image using the classic Perona-Malik, gradient magnitude-based equation.",
   "externalCompatible": false,
-  "parameters" : [
+  "parameters": [
     {
-      "name" : "conductance",
-      "label" : "Conductance",
-      "type" : "double",
-      "default" : 1.0,
-      "minimum" : 0.0
+      "name": "conductance",
+      "label": "Conductance",
+      "type": "double",
+      "default": 1.0,
+      "minimum": 0.0
     },
     {
-      "name" : "iterations",
-      "label" : "Number of Iterations",
-      "type" : "int",
-      "default" : 100,
-      "minimum" : 0
+      "name": "iterations",
+      "label": "Number of Iterations",
+      "type": "int",
+      "default": 100,
+      "minimum": 0
     },
     {
-      "name" : "timestep",
-      "label" : "Time Step",
-      "type" : "double",
-      "default" : 0.0625,
-      "minimum" : 0.0,
-      "precision" : 4
+      "name": "timestep",
+      "label": "Time Step",
+      "type": "double",
+      "default": 0.0625,
+      "minimum": 0.0,
+      "precision": 4
     }
-  ]
+  ],
+  "inputType": "ImageData",
+  "outputType": "ImageData"
 }

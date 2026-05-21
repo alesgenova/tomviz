@@ -10,6 +10,8 @@
 #include <vtkNew.h>
 #include <vtkWeakPointer.h>
 
+#include <memory>
+
 class vtkChartHistogramColorOpacityEditor;
 class vtkContextView;
 class vtkDataArray;
@@ -27,6 +29,11 @@ class vtkSMProxy;
 
 namespace tomviz {
 
+namespace pipeline {
+class VolumeData;
+using VolumeDataPtr = std::shared_ptr<VolumeData>;
+} // namespace pipeline
+
 class BrightnessContrastWidget;
 class ColorMapSettingsWidget;
 class PresetDialog;
@@ -42,6 +49,7 @@ public:
 
   void setLUT(vtkDiscretizableColorTransferFunction* lut);
   void setLUTProxy(vtkSMProxy* proxy);
+  void setVolumeData(pipeline::VolumeDataPtr volumeData);
 
   void setInputData(vtkTable* table, const char* x_, const char* y_);
 
@@ -65,6 +73,7 @@ public slots:
   void onPresetClicked();
   void onSaveToPresetClicked();
   void onBrightnessAndContrastClicked();
+  void onCreateSegmentationColormapClicked();
   void applyCurrentPreset();
   void updateUI();
 
@@ -118,6 +127,8 @@ private:
 
   QPointer<QDialog> m_brightnessContrastDialog;
   QPointer<BrightnessContrastWidget> m_brightnessContrastWidget;
+
+  pipeline::VolumeDataPtr m_volumeData;
 
   // To prevent infinite recursion...
   bool m_updatingColorFunction = false;

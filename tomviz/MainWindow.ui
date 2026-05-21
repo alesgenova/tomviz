@@ -63,6 +63,9 @@
     <addaction name="actionSaveStateAs"/>
     <addaction name="actionSaveState"/>
     <addaction name="separator"/>
+    <addaction name="actionLoadTemplate"/>
+    <addaction name="actionSaveTemplateAs"/>
+    <addaction name="separator"/>
     <addaction name="actionReset"/>
     <addaction name="actionExit"/>
    </widget>
@@ -81,7 +84,6 @@
     <addaction name="actionAcquisition"/>
     <addaction name="actionAnimationHelper"/>
     <addaction name="actionPassiveAcquisition"/>
-    <addaction name="actionPipelineSettings"/>
    </widget>
    <widget class="QMenu" name="menuData">
     <property name="title">
@@ -110,15 +112,15 @@
      <string>Segmentation</string>
     </property>
    </widget>
-   <widget class="QMenu" name="menuWorkflows">
+   <widget class="QMenu" name="menuSources">
     <property name="title">
-     <string>Workflows</string>
+     <string>Sources</string>
     </property>
-    <addaction name="actionPyXRFWorkflow"/>
-    <addaction name="actionPtychoWorkflow"/>
+    <addaction name="actionPyXRFSource"/>
+    <addaction name="actionPtychoSource"/>
    </widget>
    <addaction name="menu_File"/>
-   <addaction name="menuWorkflows"/>
+   <addaction name="menuSources"/>
    <addaction name="menuData"/>
    <addaction name="menuSegmentation"/>
    <addaction name="menuTomography"/>
@@ -156,22 +158,21 @@
       <number>0</number>
      </property>
      <item>
-      <widget class="tomviz::PipelineView" name="treeWidget">
-       <property name="dragEnabled">
-        <bool>true</bool>
-       </property>
-       <property name="dragDropMode">
-        <enum>QAbstractItemView::DragOnly</enum>
-       </property>
-       <property name="rootIsDecorated">
-        <bool>true</bool>
-       </property>
-       <property name="uniformRowHeights">
-        <bool>true</bool>
-       </property>
-       <attribute name="headerVisible">
-        <bool>false</bool>
-       </attribute>
+      <widget class="QWidget" name="pipelineWidgetContainer">
+       <layout class="QVBoxLayout" name="pipelineContainerLayout">
+        <property name="leftMargin">
+         <number>0</number>
+        </property>
+        <property name="topMargin">
+         <number>0</number>
+        </property>
+        <property name="rightMargin">
+         <number>0</number>
+        </property>
+        <property name="bottomMargin">
+         <number>0</number>
+        </property>
+       </layout>
       </widget>
      </item>
     </layout>
@@ -263,27 +264,6 @@
           <number>0</number>
          </property>
          <widget class="QWidget" name="empty"/>
-         <widget class="QScrollArea" name="dataPropertiesScrollArea">
-          <property name="frameShape">
-           <enum>QFrame::NoFrame</enum>
-          </property>
-          <property name="horizontalScrollBarPolicy">
-           <enum>Qt::ScrollBarAlwaysOff</enum>
-          </property>
-          <property name="widgetResizable">
-           <bool>true</bool>
-          </property>
-          <widget class="tomviz::DataPropertiesPanel" name="dataPropertiesPanel">
-           <property name="geometry">
-            <rect>
-             <x>0</x>
-             <y>0</y>
-             <width>100</width>
-             <height>30</height>
-            </rect>
-           </property>
-          </widget>
-         </widget>
          <widget class="QScrollArea" name="moleculePropertiesScrollArea">
           <property name="frameShape">
            <enum>QFrame::NoFrame</enum>
@@ -295,69 +275,6 @@
            <bool>true</bool>
           </property>
           <widget class="tomviz::MoleculePropertiesPanel" name="moleculePropertiesPanel">
-           <property name="geometry">
-            <rect>
-             <x>0</x>
-             <y>0</y>
-             <width>100</width>
-             <height>30</height>
-            </rect>
-           </property>
-          </widget>
-         </widget>
-         <widget class="QScrollArea" name="modulePropertiesScrollArea">
-          <property name="frameShape">
-           <enum>QFrame::NoFrame</enum>
-          </property>
-          <property name="horizontalScrollBarPolicy">
-           <enum>Qt::ScrollBarAlwaysOff</enum>
-          </property>
-          <property name="widgetResizable">
-           <bool>true</bool>
-          </property>
-          <widget class="tomviz::ModulePropertiesPanel" name="modulePropertiesPanel">
-           <property name="geometry">
-            <rect>
-             <x>0</x>
-             <y>0</y>
-             <width>100</width>
-             <height>30</height>
-            </rect>
-           </property>
-          </widget>
-         </widget>
-         <widget class="QScrollArea" name="operatorPropertiesScrollArea">
-          <property name="frameShape">
-           <enum>QFrame::NoFrame</enum>
-          </property>
-          <property name="horizontalScrollBarPolicy">
-           <enum>Qt::ScrollBarAlwaysOff</enum>
-          </property>
-          <property name="widgetResizable">
-           <bool>true</bool>
-          </property>
-          <widget class="tomviz::OperatorPropertiesPanel" name="operatorPropertiesPanel">
-           <property name="geometry">
-            <rect>
-             <x>0</x>
-             <y>0</y>
-             <width>100</width>
-             <height>30</height>
-            </rect>
-           </property>
-          </widget>
-         </widget>
-         <widget class="QScrollArea" name="operatorResultPropertiesScrollArea">
-          <property name="frameShape">
-           <enum>QFrame::NoFrame</enum>
-          </property>
-          <property name="horizontalScrollBarPolicy">
-           <enum>Qt::ScrollBarAlwaysOff</enum>
-          </property>
-          <property name="widgetResizable">
-           <bool>true</bool>
-          </property>
-          <widget class="tomviz::OperatorResultPropertiesPanel" name="operatorResultPropertiesPanel">
            <property name="geometry">
             <rect>
              <x>0</x>
@@ -483,14 +400,6 @@
     <string>Export data to Web</string>
    </property>
   </action>
-  <action name="actionPipelineSettings">
-   <property name="text">
-    <string>Pipeline Settings</string>
-   </property>
-   <property name="toolTip">
-    <string>Pipeline Settings</string>
-   </property>
-  </action>
   <action name="actionAcquisition">
    <property name="text">
     <string>Acquisition</string>
@@ -510,6 +419,16 @@
    </property>
    <property name="text">
     <string>Save State</string>
+   </property>
+  </action>
+  <action name="actionLoadTemplate">
+   <property name="text">
+    <string>Load Template</string>
+   </property>
+  </action>
+  <action name="actionSaveTemplateAs">
+   <property name="text">
+    <string>Save Template As</string>
    </property>
   </action>
   <action name="actionOpen">
@@ -532,15 +451,15 @@
     <string>Animation Helper</string>
    </property>
   </action>
-  <action name="actionPyXRFWorkflow">
+  <action name="actionPyXRFSource">
    <property name="text">
     <string>PyXRF</string>
    </property>
    <property name="toolTip">
-    <string>PyXRF Workflow</string>
+    <string>PyXRF Source</string>
    </property>
   </action>
-  <action name="actionPtychoWorkflow">
+  <action name="actionPtychoSource">
    <property name="text">
     <string>Ptycho</string>
    </property>
@@ -565,38 +484,9 @@
    <header>pqVCRToolbar.h</header>
   </customwidget>
   <customwidget>
-   <class>tomviz::PipelineView</class>
-   <extends>QTreeView</extends>
-   <header>PipelineView.h</header>
-  </customwidget>
-  <customwidget>
-   <class>tomviz::DataPropertiesPanel</class>
-   <extends>QWidget</extends>
-   <header>DataPropertiesPanel.h</header>
-   <container>1</container>
-  </customwidget>
-  <customwidget>
    <class>tomviz::MoleculePropertiesPanel</class>
    <extends>QWidget</extends>
    <header>MoleculePropertiesPanel.h</header>
-   <container>1</container>
-  </customwidget>
-  <customwidget>
-   <class>tomviz::ModulePropertiesPanel</class>
-   <extends>QWidget</extends>
-   <header>ModulePropertiesPanel.h</header>
-   <container>1</container>
-  </customwidget>
-  <customwidget>
-   <class>tomviz::OperatorPropertiesPanel</class>
-   <extends>QWidget</extends>
-   <header>OperatorPropertiesPanel.h</header>
-   <container>1</container>
-  </customwidget>
-  <customwidget>
-   <class>tomviz::OperatorResultPropertiesPanel</class>
-   <extends>QWidget</extends>
-   <header>OperatorResultPropertiesPanel.h</header>
    <container>1</container>
   </customwidget>
   <customwidget>

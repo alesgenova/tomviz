@@ -9,7 +9,6 @@
 #include "DataBroker.h"
 
 namespace tomviz {
-class DataSource;
 
 /// DataBrokerLoadReaction handles the "Import From DataBroker" action in
 /// tomviz. On trigger, this will open a dialog where the user "drill down" to

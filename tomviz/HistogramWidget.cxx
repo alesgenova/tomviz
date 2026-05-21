@@ -7,13 +7,18 @@
 #include "BrightnessContrastWidget.h"
 #include "ColorMap.h"
 #include "ColorMapSettingsWidget.h"
-#include "DataSource.h"
 #include "DoubleSliderWidget.h"
-#include "ModuleContour.h"
-#include "ModuleManager.h"
 #include "PresetDialog.h"
 #include "QVTKGLWidget.h"
 #include "Utilities.h"
+#include "pipeline/InputPort.h"
+#include "pipeline/Link.h"
+#include "pipeline/Node.h"
+#include "pipeline/OutputPort.h"
+#include "pipeline/Pipeline.h"
+#include "pipeline/PortType.h"
+#include "pipeline/data/VolumeData.h"
+#include "pipeline/sinks/ContourSink.h"
 
 #include "vtkChartHistogramColorOpacityEditor.h"
 
@@ -48,6 +53,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QToolButton>
@@ -150,11 +156,14 @@ HistogramWidget::HistogramWidget(QWidget* parent)
   connect(&ActiveObjects::instance(),
           QOverload<vtkSMViewProxy*>::of(&ActiveObjects::viewChanged),
           this, [this](vtkSMViewProxy*) { updateUI(); });
+  // TODO: activeNodeChanged provides pipeline::Node*, need to extract
+  // DataSource context for updateColorMapDialogs when needed.
   connect(&ActiveObjects::instance(),
-          QOverload<DataSource*>::of(&ActiveObjects::dataSourceChanged), this,
-          &HistogramWidget::updateColorMapDialogs);
-  connect(&ModuleManager::instance(), &ModuleManager::dataSourceRemoved,
-	  this, [this](DataSource*) { updateUI(); });
+          &ActiveObjects::activeNodeChanged, this,
+          [this](pipeline::Node*) { updateColorMapDialogs(); });
+  // TODO: ModuleManager::dataSourceRemoved signal no longer available.
+  // Need to listen for node removal from the pipeline instead.
+  // connect to pipeline's nodeRemoved signal when available.
   connect(this, &HistogramWidget::colorMapUpdated, this, &HistogramWidget::updateUI);
 
   setLayout(hLayout);
@@ -213,6 +222,11 @@ void HistogramWidget::setLUTProxy(vtkSMProxy* proxy)
   }
 }
 
+void HistogramWidget::setVolumeData(pipeline::VolumeDataPtr volumeData)
+{
+  m_volumeData = std::move(volumeData);
+}
+
 void HistogramWidget::updateLUTProxy()
 {
   // Update the LUT proxy from the LUT object
@@ -239,7 +253,6 @@ void HistogramWidget::updateLUTProxy()
 
 void HistogramWidget::updateColorMapDialogs()
 {
-  auto* ds = ActiveObjects::instance().activeDataSource();
   auto* lut = m_LUT.Get();
 
   if (m_colorMapSettingsWidget) {
@@ -248,7 +261,7 @@ void HistogramWidget::updateColorMapDialogs()
   }
 
   if (m_brightnessContrastWidget) {
-    m_brightnessContrastWidget->setDataSource(ds);
+    m_brightnessContrastWidget->setVolumeData(m_volumeData);
     m_brightnessContrastWidget->setLut(lut);
     m_brightnessContrastWidget->updateGui();
   }
@@ -289,7 +302,7 @@ vtkSMProxy* HistogramWidget::getScalarBarRepresentation(vtkSMProxy* view)
     vtkSMPropertyHelper(sbProxy, "Enabled").Set(0);
     vtkSMPropertyHelper(sbProxy, "Title").Set("");
     vtkSMPropertyHelper(sbProxy, "ComponentTitle").Set("");
-    vtkSMPropertyHelper(sbProxy, "RangeLabelFormat").Set("%g");
+    vtkSMPropertyHelper(sbProxy, "RangeLabelFormat").Set("{:g}");
     sbProxy->UpdateVTKObjects();
   }
 
@@ -371,40 +384,80 @@ void HistogramWidget::onCurrentPointEditEvent()
 
 void HistogramWidget::histogramClicked(vtkObject*)
 {
-  auto activeDataSource = ActiveObjects::instance().activeDataSource();
-  Q_ASSERT(activeDataSource);
-
-  auto view = ActiveObjects::instance().activeView();
+  auto& ao = ActiveObjects::instance();
+  auto* view = ao.activeView();
   if (!view) {
     return;
   }
 
-  // Use active ModuleContour is possible. Otherwise, find the first existing
-  // ModuleContour instance or just create a new one, if none exists.
-  typedef ModuleContour ModuleContourType;
-
   auto isoValue = m_histogramColorOpacityEditor->GetContourValue();
-  auto contour =
-    qobject_cast<ModuleContourType*>(ActiveObjects::instance().activeModule());
-  if (!contour) {
-    QList<ModuleContourType*> contours =
-      ModuleManager::instance().findModules<ModuleContourType*>(
-        activeDataSource, view);
-    if (contours.size() == 0) {
-      auto res = createContourDialog(isoValue);
-      if (!res) {
-        return;
-      }
-      contour = qobject_cast<ModuleContourType*>(
-        ModuleManager::instance().createAndAddModule("Contour",
-                                                     activeDataSource, view));
-    } else {
-      contour = contours[0];
-    }
-    ActiveObjects::instance().setActiveModule(contour);
+
+  auto* pip = ao.pipeline();
+  if (!pip) {
+    return;
   }
-  Q_ASSERT(contour);
+
+  pipeline::ContourSink* contour = nullptr;
+
+  // Priority 1: the active node is already a ContourSink.
+  contour = qobject_cast<pipeline::ContourSink*>(ao.activeNode());
+
+  // Priority 2: a ContourSink linked to the current tip output port.
+  if (!contour) {
+    auto* tipPort = ao.activeTipOutputPort();
+    if (tipPort) {
+      for (auto* link : tipPort->links()) {
+        auto* sink =
+          qobject_cast<pipeline::ContourSink*>(link->to()->node());
+        if (sink) {
+          contour = sink;
+          break;
+        }
+      }
+    }
+  }
+
+  // Priority 3: any ContourSink in the pipeline.
+  if (!contour) {
+    for (auto* node : pip->nodes()) {
+      auto* sink = qobject_cast<pipeline::ContourSink*>(node);
+      if (sink) {
+        contour = sink;
+        break;
+      }
+    }
+  }
+
+  // No existing ContourSink — ask the user to create one.
+  if (!contour) {
+    if (!createContourDialog(isoValue)) {
+      return;
+    }
+
+    auto* tipPort = ao.activeTipOutputPort();
+    if (!tipPort) {
+      return;
+    }
+
+    auto* newContour = new pipeline::ContourSink();
+    newContour->setLabel("Contour");
+    newContour->initialize(view);
+    pip->addNode(newContour);
+
+    auto* input = newContour->inputPorts().value(0);
+    if (input &&
+        pipeline::isPortTypeCompatible(tipPort->type(),
+                                       input->acceptedTypes())) {
+      pip->createLink(tipPort, input);
+    }
+
+    contour = newContour;
+  }
+
   contour->setIsoValue(isoValue);
+  ao.setActiveNode(contour);
+  pip->execute();
+
   tomviz::convert<pqView*>(view)->render();
 }
 
@@ -417,9 +470,17 @@ bool HistogramWidget::createContourDialog(double& isoValue)
     return true;
   }
 
-  auto ds = ActiveObjects::instance().activeDataSource();
-  if (!ds) {
-    return false;
+  // Obtain the scalar range from the tip output port's VolumeData.
+  double range[2] = { 0.0, 1.0 };
+  auto* tipPort = ActiveObjects::instance().activeTipOutputPort();
+  auto tipData = tipPort ? tipPort->data() : pipeline::PortData();
+  if (tipData.isValid() && pipeline::isVolumeType(tipData.type())) {
+    auto vol = tipData.value<pipeline::VolumeDataPtr>();
+    if (vol && vol->isValid()) {
+      auto r = vol->scalarRange();
+      range[0] = r[0];
+      range[1] = r[1];
+    }
   }
 
   QDialog dialog;
@@ -433,10 +494,6 @@ bool HistogramWidget::createContourDialog(double& isoValue)
 
   QFormLayout formLayout;
   vLayout.addLayout(&formLayout);
-
-  // Get the range of the dataset
-  double range[2];
-  ds->getRange(range);
 
   DoubleSliderWidget w(true);
   w.setMinimum(range[0]);
@@ -479,12 +536,12 @@ void HistogramWidget::onResetRangeClicked()
 
 void HistogramWidget::resetRange()
 {
-  auto activeDataSource = ActiveObjects::instance().activeDataSource();
-  if (!activeDataSource)
+  if (!m_volumeData || !m_volumeData->isValid()) {
     return;
+  }
 
-  double range[2];
-  activeDataSource->getRange(range);
+  auto sr = m_volumeData->scalarRange();
+  double range[2] = { sr[0], sr[1] };
   resetRange(range);
 }
 
@@ -497,17 +554,18 @@ void HistogramWidget::resetRange(double range[2])
 
 void HistogramWidget::onCustomRangeClicked()
 {
-  // Get the max allowable range
-  auto activeDataSource = ActiveObjects::instance().activeDataSource();
-  if (!activeDataSource)
+  if (!m_volumeData || !m_volumeData->isValid()) {
     return;
+  }
 
-  double maxRange[2];
-  activeDataSource->getRange(maxRange);
+  auto sr = m_volumeData->scalarRange();
+  double maxRange[2] = { sr[0], sr[1] };
 
   // Get the type of the active scalar
-  auto scalar = activeDataSource->activeScalars();
-  auto array = activeDataSource->getScalarsArray(scalar);
+  auto* array = m_volumeData->scalars();
+  if (!array) {
+    return;
+  }
   auto dataType = array->GetDataType();
   int precision = 0;
   if (dataType == VTK_FLOAT || dataType == VTK_DOUBLE) {
@@ -622,6 +680,9 @@ void HistogramWidget::showPresetDialog(const QJsonObject& newPreset)
     m_presetDialog = new PresetDialog(this);
     QObject::connect(m_presetDialog, &PresetDialog::applyPreset, this,
                      &HistogramWidget::applyCurrentPreset);
+    QObject::connect(m_presetDialog,
+                     &PresetDialog::createSegmentationColormapRequested, this,
+                     &HistogramWidget::onCreateSegmentationColormapClicked);
   }
 
   if (!newPreset.isEmpty()) {
@@ -688,9 +749,10 @@ void HistogramWidget::onBrightnessAndContrastClicked()
   auto& dialog = *m_brightnessContrastDialog;
   dialog.setLayout(new QVBoxLayout);
   dialog.setWindowTitle("Brightness and Contrast");
+  dialog.resize(500, 160);
 
-  auto* ds = ActiveObjects::instance().activeDataSource();
-  m_brightnessContrastWidget = new BrightnessContrastWidget(ds, m_LUT, this);
+  m_brightnessContrastWidget =
+    new BrightnessContrastWidget(m_volumeData, m_LUT, this);
   dialog.layout()->addWidget(m_brightnessContrastWidget);
 
   auto* widget = m_brightnessContrastWidget.data();
@@ -709,16 +771,11 @@ void HistogramWidget::autoAdjustContrast()
 {
   auto* table = m_inputData.Get();
 
-  // For now, auto adjust contrast for the whole data source. We can
-  // also do it for individual slices in the future (in which case
-  // we should generate a histogram for an individual slice).
-  auto* ds = ActiveObjects::instance().activeDataSource();
-
-  if (!table || !ds || !m_LUT) {
+  if (!table || !m_volumeData || !m_volumeData->isValid() || !m_LUT) {
     return;
   }
 
-  auto* imageData = ds->imageData();
+  auto* imageData = m_volumeData->imageData();
   auto* histogram =
     vtkDataArray::SafeDownCast(table->GetColumnByName("image_pops"));
   auto* extents =
@@ -737,8 +794,8 @@ void HistogramWidget::autoAdjustContrast(vtkDataArray* histogram,
                                          vtkImageData* imageData)
 {
   // Gather some information
-  double range[2];
-  DataSource::getRange(imageData, range);
+  auto sr = m_volumeData->scalarRange();
+  double range[2] = { sr[0], sr[1] };
 
   int dims[3];
   imageData->GetDimensions(dims);
@@ -791,6 +848,38 @@ void HistogramWidget::autoAdjustContrast(vtkDataArray* histogram,
   rescaleTransferFunction(m_LUTProxy, min, max);
 }
 
+void HistogramWidget::onCreateSegmentationColormapClicked()
+{
+  if (!m_volumeData || !m_volumeData->isValid()) {
+    return;
+  }
+
+  auto* scalars = m_volumeData->scalars();
+  if (!scalars) {
+    return;
+  }
+
+  // Up-front diagnostics — the utility returns empty for the same
+  // failure modes, but we want to tell the user *why* before falling
+  // through to the silent path.
+  auto dataType = scalars->GetDataType();
+  if (dataType == VTK_FLOAT || dataType == VTK_DOUBLE) {
+    QMessageBox::warning(
+      this, "Integer Data Required",
+      "Segmentation colormaps require integer-valued data. "
+      "The current dataset has floating-point values.");
+    return;
+  }
+
+  auto preset = buildSegmentationPreset(scalars);
+  if (preset.isEmpty()) {
+    return;
+  }
+
+  m_presetDialog->addNewPreset(preset);
+  applyCurrentPreset();
+}
+
 void HistogramWidget::applyCurrentPreset()
 {
   vtkSMProxy* lut = m_LUTProxy;
@@ -830,8 +919,8 @@ void HistogramWidget::updateUI()
     }
   }
 
-  auto dataSource = ActiveObjects::instance().activeDataSource();
-  if (!dataSource) {
+  auto* activeNode = ActiveObjects::instance().activeNode();
+  if (!activeNode) {
     QSignalBlocker blocker1(m_colorLegendToolButton);
     QSignalBlocker blocker2(m_colorMapSettingsButton);
     QSignalBlocker blocker3(m_savePresetButton);
@@ -874,16 +963,22 @@ void HistogramWidget::showEvent(QShowEvent* event)
 
 void HistogramWidget::addPlaceholderNodes()
 {
-  auto* lut = m_LUT.Get();
-  auto* opacity = m_scalarOpacityFunction.Get();
-  auto* ds = ActiveObjects::instance().activeDataSource();
-
-  if (lut && ds) {
-    tomviz::addPlaceholderNodes(lut, ds);
+  if (!m_volumeData || !m_volumeData->isValid()) {
+    return;
   }
 
-  if (opacity && ds) {
-    tomviz::addPlaceholderNodes(opacity, ds);
+  auto sr = m_volumeData->scalarRange();
+  double range[2] = { sr[0], sr[1] };
+
+  auto* lut = m_LUT.Get();
+  auto* opacity = m_scalarOpacityFunction.Get();
+
+  if (lut) {
+    tomviz::addPlaceholderNodes(lut, range);
+  }
+
+  if (opacity) {
+    tomviz::addPlaceholderNodes(opacity, range);
   }
 }
 

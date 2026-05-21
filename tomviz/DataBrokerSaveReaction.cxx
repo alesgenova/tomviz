@@ -4,8 +4,7 @@
 #include "DataBrokerSaveReaction.h"
 #include "DataBrokerSaveDialog.h"
 
-#include "ActiveObjects.h"
-#include "DataSource.h"
+#include "legacy/DataSource.h"
 #include "GenericHDF5Format.h"
 #include "LoadDataReaction.h"
 #include "Utilities.h"
@@ -21,13 +20,9 @@ DataBrokerSaveReaction::DataBrokerSaveReaction(QAction* parentObject,
                                                MainWindow* mainWindow)
   : pqReaction(parentObject), m_mainWindow(mainWindow)
 {
-  QObject::connect(
-    &ActiveObjects::instance(),
-    QOverload<DataSource*>::of(&ActiveObjects::dataSourceChanged), this,
-    [this](DataSource* dataSource) {
-      parentAction()->setEnabled(dataSource != nullptr &&
-                                 m_dataBrokerInstalled);
-    });
+  // TODO: migrate to new pipeline
+  // was: connected to ActiveObjects::dataSourceChanged to enable/disable action
+  parentAction()->setEnabled(false);
 }
 
 DataBrokerSaveReaction::~DataBrokerSaveReaction() = default;
@@ -50,7 +45,8 @@ void DataBrokerSaveReaction::saveData()
   if (dialog.exec() == QDialog::Accepted) {
     auto name = dialog.name();
 
-    auto ds = ActiveObjects::instance().activeDataSource();
+    // TODO: migrate to new pipeline
+    DataSource* ds = nullptr; // was: ActiveObjects::instance().activeDataSource()
     if (ds == nullptr) {
       qWarning() << "No active data source!";
       return;

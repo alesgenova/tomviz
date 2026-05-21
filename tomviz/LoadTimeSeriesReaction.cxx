@@ -19,7 +19,7 @@ void LoadTimeSeriesReaction::onTriggered()
   loadData();
 }
 
-QList<DataSource*> LoadTimeSeriesReaction::loadData()
+QList<pipeline::SourceNode*> LoadTimeSeriesReaction::loadData()
 {
   bool isTimeSeries = true;
   return LoadDataReaction::loadData(isTimeSeries);
