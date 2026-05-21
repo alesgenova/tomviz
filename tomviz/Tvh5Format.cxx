@@ -178,6 +178,9 @@ bool writeTablePayload(h5::H5ReadWrite& writer, const std::string& portGroup,
 bool writeVolumePayload(h5::H5ReadWrite& writer, const std::string& portGroup,
                         const pipeline::PortData& data)
 {
+  if (!data.isValid() || !pipeline::isVolumeType(data.type())) {
+    return false;
+  }
   auto volume = data.value<pipeline::VolumeDataPtr>();
   if (!volume || !volume->isValid()) {
     return false;
