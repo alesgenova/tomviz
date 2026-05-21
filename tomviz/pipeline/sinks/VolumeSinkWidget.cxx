@@ -107,6 +107,13 @@ VolumeSinkWidget::VolumeSinkWidget(QWidget* parent_)
   // vtkImageData with the correct active scalar, or by using per-port
   // SetInputArrayToProcess() on the shared mapper.
   m_ui->cbMultiVolume->setVisible(false);
+
+  // FIXME: staged for removal
+  m_ui->cbTransferMode->setVisible(false);
+  m_ui->label->setVisible(false);
+
+  // FIXME: staged for removal
+  m_ui->useRgbaMapping->setVisible(false);
   m_ui->groupRgbaMappingRange->setVisible(false);
   m_ui->rgbaMappingComponentLabel->setVisible(false);
   m_ui->rgbaMappingComponent->setVisible(false);

@@ -124,20 +124,20 @@ ViewMenuManager::ViewMenuManager(QMainWindow* mainWindow, QMenu* menu)
 
   Menu->addSeparator();
 
+  // FIXME: staged for removal
   m_imageViewerModeAction = Menu->addAction("Image Viewer Mode");
   m_imageViewerModeAction->setCheckable(true);
   m_imageViewerModeAction->setChecked(false);
+  m_imageViewerModeAction->setVisible(false);
   connect(m_imageViewerModeAction, &QAction::triggered, this,
           &ViewMenuManager::setImageViewerMode);
 
-  Menu->addSeparator();
-
+  // FIXME: staged for removal
   m_showDarkWhiteDataAction = Menu->addAction("Show Dark/White Data");
   m_showDarkWhiteDataAction->setEnabled(false);
+  m_showDarkWhiteDataAction->setVisible(false);
   connect(m_showDarkWhiteDataAction, &QAction::triggered, this,
           &ViewMenuManager::showDarkWhiteData);
-
-  Menu->addSeparator();
 
   m_previousImageViewerSettings.reset(new PreviousImageViewerSettings);
 
@@ -337,13 +337,6 @@ static void resize2DCameraToFit(vtkSMRenderViewProxy* view, double bounds[6],
 
   auto* camera = view->GetActiveCamera();
   camera->SetParallelScale(scale);
-
-  double depth = lengths[axis];
-  if (depth < 1.0) {
-    depth = 1.0;
-  }
-  double dist = camera->GetDistance();
-  camera->SetClippingRange(dist - depth, dist + depth);
 }
 
 void ViewMenuManager::setImageViewerMode(bool enable)
@@ -481,13 +474,7 @@ void ViewMenuManager::setImageViewerMode(bool enable)
     default: axis = 2; break;
   }
 
-  switch (axis) {
-    case 0: CameraReaction::resetPositiveX(); break;
-    case 1: CameraReaction::resetPositiveY(); break;
-    default: CameraReaction::resetNegativeZ(); break;
-  }
-
-  double bounds[6];
+  double bounds[6] = { 0, 0, 0, 0, 0, 0 };
   auto vol = sliceSink->volumeData();
   if (vol && vol->isValid()) {
     vol->imageData()->GetBounds(bounds);
@@ -500,10 +487,23 @@ void ViewMenuManager::setImageViewerMode(bool enable)
       }
     }
   }
+
+  switch (axis) {
+    case 0: CameraReaction::resetPositiveX(); break;
+    case 1: CameraReaction::resetPositiveY(); break;
+    default: CameraReaction::resetNegativeZ(); break;
+  }
   resize2DCameraToFit(view, bounds, axis);
 
+  double depth = bounds[2 * axis + 1] - bounds[2 * axis];
+  if (depth < 1.0) {
+    depth = 1.0;
+  }
+  double dist = camera->GetDistance();
+  camera->SetClippingRange(0.01, dist + depth);
+
   emit imageViewerModeToggled(enable);
-  render();
+  view->GetRenderWindow()->Render();
 }
 
 void ViewMenuManager::restoreImageViewerSettings()
@@ -536,7 +536,7 @@ void ViewMenuManager::restoreImageViewerSettings()
   }
 
   view->ResetCamera();
-  render();
+  view->StillRender();
 }
 
 void ViewMenuManager::updateDataSource(DataSource* s)

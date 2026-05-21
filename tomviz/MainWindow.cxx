@@ -895,7 +895,8 @@ MainWindow::MainWindow(QWidget* parent, Qt::WindowFlags flags)
   new SaveDataReaction(m_ui->actionSaveData);
   new SaveScreenshotReaction(m_ui->actionSaveScreenshot, this);
   new pqSaveAnimationReaction(m_ui->actionSaveMovie);
-  new SaveWebReaction(m_ui->actionSaveWeb, this);
+  // FIXME: staged for removal
+  m_ui->actionSaveWeb->setVisible(false);
 
   new SaveLoadStateReaction(m_ui->actionLoadState, /*load*/ true);
   new SaveLoadStateReaction(m_ui->actionSaveStateAs);
