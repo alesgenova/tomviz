@@ -685,7 +685,40 @@ QMap<QString, PortData> LegacyPythonTransform::transform(
     }
 
   } catch (const py::error_already_set& e) {
-    qWarning("LegacyPythonTransform Python error: %s", e.what());
+    std::string full = e.what();
+
+    // Strip the "At:\n  ..." traceback that pybind11 appends.
+    std::string msg = full;
+    auto atPos = msg.find("\n\nAt:");
+    if (atPos != std::string::npos) {
+      msg.erase(atPos);
+    }
+
+    // Extract script line number from the "At:" block. pybind11 formats
+    // frames as "  <string>(748): transform\n" — find the last one from
+    // "<string>" to get the deepest operator-script frame.
+    int scriptLine = -1;
+    const std::string marker = "<string>(";
+    auto searchPos = full.find("At:");
+    while (searchPos != std::string::npos) {
+      auto hit = full.find(marker, searchPos);
+      if (hit == std::string::npos) break;
+      auto numStart = hit + marker.size();
+      auto numEnd = full.find(')', numStart);
+      if (numEnd != std::string::npos) {
+        try {
+          scriptLine = std::stoi(full.substr(numStart, numEnd - numStart));
+        } catch (...) {}
+      }
+      searchPos = numEnd;
+    }
+
+    if (scriptLine >= 0) {
+      qWarning("LegacyPythonTransform Python error (line %d): %s",
+               scriptLine, msg.c_str());
+    } else {
+      qWarning("LegacyPythonTransform Python error: %s", msg.c_str());
+    }
   } catch (const std::exception& e) {
     qWarning("LegacyPythonTransform error: %s", e.what());
   }
