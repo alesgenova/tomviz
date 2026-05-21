@@ -55,8 +55,10 @@ void DataTransformMenu::buildTransforms()
 
   // === Volume Manipulation submenu ===
   QMenu* volumeManip = menu->addMenu("Volume Manipulation");
+  // FIXME: staged for removal
   auto manualManipulationAction =
     volumeManip->addAction("Manual Manipulation");
+  manualManipulationAction->setVisible(false);
   auto shiftUniformAction = volumeManip->addAction("Shift Volume");
   auto deleteSliceAction = volumeManip->addAction("Delete Slices");
   auto padVolumeAction = volumeManip->addAction("Pad Volume");
@@ -65,7 +67,9 @@ void DataTransformMenu::buildTransforms()
   auto rotateAction = volumeManip->addAction("Rotate");
   auto clearAction = volumeManip->addAction("Clear Subvolume");
   auto swapAction = volumeManip->addAction("Swap Axes");
+  // FIXME: staged for removal
   auto registrationAction = volumeManip->addAction("Registration");
+  registrationAction->setVisible(false);
 
   // === Math Operations submenu ===
   QMenu* mathOps = menu->addMenu("Math Operations");
