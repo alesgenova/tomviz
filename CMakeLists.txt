@@ -153,6 +153,21 @@ find_package(ITK 4.9)
 set(PYBIND11_CPP_STANDARD "-std=c++17" CACHE STRING "")
 add_subdirectory(${PROJECT_SOURCE_DIR}/thirdparty/pybind11)
 
+# Route pybind11's GIL management through CPython's PyGILState_Ensure /
+# PyGILState_Release (see pybind11/gil_simple.h) instead of its own
+# thread-state caching. Tomviz embeds Python alongside VTK/ParaView,
+# which pervasively use PyGILState_Ensure (e.g. vtkSmartPyObject's
+# destructor). Mixing the two GIL bookkeeping schemes across threads —
+# a pipeline worker running a Python transform via pybind while the
+# main thread tears down a Python-bearing widget via VTK — corrupts the
+# worker's thread state (PyThreadState with a NULL interpreter), a
+# SIGSEGV in the next Python allocation. Defined here as an INTERFACE
+# definition so every translation unit that includes pybind11/gil.h
+# agrees on the gil_scoped_* type (it changes a type alias; a per-target
+# definition would be an ODR violation).
+target_compile_definitions(pybind11::pybind11
+  INTERFACE PYBIND11_SIMPLE_GIL_MANAGEMENT)
+
 option(tomviz_ENABLE_LOOKING_GLASS "Enable the looking glass plugin" OFF)
 if (tomviz_ENABLE_LOOKING_GLASS)
   if (NOT DEFINED tomviz_LOOKING_GLASS_PLUGIN_PATH)

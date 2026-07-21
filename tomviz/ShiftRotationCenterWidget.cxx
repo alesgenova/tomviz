@@ -650,12 +650,12 @@ public:
     try {
       Python python;
 
-      // Wrap the vtkImageData in a Dataset (uses LegacyDataset since
-      // the test script may rely on the v1 create_child_dataset API).
-      py::module_ datasetMod = py::module_::import("tomviz.internal_dataset");
-      py::object datasetCls = datasetMod.attr("LegacyDataset");
-      py::object dataset = datasetCls(
-        py::cast(image.Get(), py::return_value_policy::reference));
+      // Wrap the vtkImageData in a numpy-backed LegacyDataset (the
+      // test script may rely on the v1 create_child_dataset API).
+      py::module_ boundary = py::module_::import("tomviz._boundary");
+      py::object dataset = boundary.attr("wrap_vtk_image")(
+        py::cast(image.Get(), py::return_value_policy::reference),
+        /*legacy=*/true);
 
       // Load the Python script as a module
       py::module_ types = py::module_::import("types");

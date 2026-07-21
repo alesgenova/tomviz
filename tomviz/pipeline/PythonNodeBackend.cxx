@@ -18,6 +18,19 @@
 #include "pybind11/PybindVTKTypeCaster.h"
 #pragma pop_macro("slots")
 
+// Python transforms run on pipeline worker threads (ThreadedExecutor)
+// while the main thread may enter Python through VTK/ParaView, which use
+// PyGILState_Ensure. pybind11's default GIL management keeps its own
+// thread-state accounting that diverges from CPython's gilstate under
+// the app's external Py_Initialize, corrupting the worker's
+// PyThreadState (SIGSEGV). The build defines PYBIND11_SIMPLE_GIL_-
+// MANAGEMENT (top-level CMakeLists.txt) to route gil_scoped_* through
+// PyGILState_Ensure/Release. Fail loudly if that define is ever dropped.
+#ifndef PYBIND11_SIMPLE_GIL_MANAGEMENT
+#  error "tomviz requires PYBIND11_SIMPLE_GIL_MANAGEMENT (see CMakeLists.txt): \
+threaded Python execution corrupts CPython thread state otherwise."
+#endif
+
 #include <vtkImageData.h>
 #include <vtkMolecule.h>
 #include <vtkNew.h>
@@ -43,12 +56,12 @@ constexpr const char* kSourceBaseAttr = "SourceNode";
 constexpr const char* kTransformBaseAttr = "TransformNode";
 
 /// Convert a PortData payload into a Python object suitable for the
-/// inputs dict. ImageData/Volume/TiltSeries get wrapped in a fresh
-/// internal_dataset.Dataset (around a deep copy of the input vtkImageData, so
-/// in-place mutations by the user's transform don't corrupt the
-/// upstream port's payload). Tables/molecules pass through as raw
-/// vtkObjects via vtkPythonUtil.
-py::object portDataToPython(const PortData& data, py::object datasetCls)
+/// inputs dict. ImageData/Volume/TiltSeries get wrapped in a numpy-
+/// backed tomviz_pipeline Dataset (around a deep copy of the input
+/// vtkImageData, so in-place mutations by the user's transform don't
+/// corrupt the upstream port's payload). Tables/molecules convert to
+/// the library's pure Table/Molecule payloads.
+py::object portDataToPython(const PortData& data, py::object boundary)
 {
   if (!data.isValid()) {
     return py::none();
@@ -59,26 +72,32 @@ py::object portDataToPython(const PortData& data, py::object datasetCls)
     if (!vol || !vol->isValid()) {
       return py::none();
     }
+    // Deep copy for isolation, then wrap in a numpy-backed
+    // tomviz_pipeline Dataset whose arrays are views over the copy.
     vtkNew<vtkImageData> copy;
     copy->DeepCopy(vol->imageData());
-    return datasetCls(py::cast(static_cast<vtkImageData*>(copy.Get()),
-                               py::return_value_policy::reference));
+    return boundary.attr("wrap_vtk_image")(
+      py::cast(static_cast<vtkImageData*>(copy.Get()),
+               py::return_value_policy::reference),
+      /*legacy=*/false);
   }
   if (type == PortType::Table) {
     auto sp = data.value<vtkSmartPointer<vtkTable>>();
     if (!sp) {
       return py::none();
     }
-    return py::reinterpret_steal<py::object>(
-      vtkPythonUtil::GetObjectFromPointer(sp.GetPointer()));
+    return boundary.attr("vtk_table_to_table")(
+      py::reinterpret_steal<py::object>(
+        vtkPythonUtil::GetObjectFromPointer(sp.GetPointer())));
   }
   if (type == PortType::Molecule) {
     auto sp = data.value<vtkSmartPointer<vtkMolecule>>();
     if (!sp) {
       return py::none();
     }
-    return py::reinterpret_steal<py::object>(
-      vtkPythonUtil::GetObjectFromPointer(sp.GetPointer()));
+    return boundary.attr("vtk_molecule_to_molecule")(
+      py::reinterpret_steal<py::object>(
+        vtkPythonUtil::GetObjectFromPointer(sp.GetPointer())));
   }
   return py::none();
 }
@@ -367,8 +386,7 @@ QMap<QString, PortData> PythonNodeBackend::runImpl(
     // importing it (legacy carry-over).
     py::module_::import("tomviz.utils");
 
-    py::module_ datasetMod = py::module_::import("tomviz.internal_dataset");
-    py::object datasetCls = datasetMod.attr("Dataset");
+    py::module_ boundary = py::module_::import("tomviz._boundary");
 
     py::module_ nodesMod = py::module_::import("tomviz.nodes");
     py::object baseClass =
@@ -407,12 +425,12 @@ QMap<QString, PortData> PythonNodeBackend::runImpl(
       pyResult = instance.attr("produce")(**kwargs);
     } else {
       // Convert each input PortData to the right Python representation.
-      // Volume-shaped inputs get a deep-copied internal_dataset.Dataset wrapper
-      // so user mutation doesn't leak upstream.
+      // Volume-shaped inputs get a numpy Dataset over a deep copy so
+      // user mutation doesn't leak upstream.
       py::dict inputsDict;
       for (auto it = inputs.constBegin(); it != inputs.constEnd(); ++it) {
         inputsDict[py::str(it.key().toStdString())] =
-          portDataToPython(it.value(), datasetCls);
+          portDataToPython(it.value(), boundary);
       }
       pyResult =
         instance.attr("transform")(inputsDict, **kwargs);

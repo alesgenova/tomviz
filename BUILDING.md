@@ -43,6 +43,7 @@ Tomviz python library itself.
 
 ```bash
 conda install -y --override-channels -c conda-forge --file tomviz/.github/workflows/runtime_requirements.txt
+pip install --no-build-isolation --no-deps -U "tomviz-pipeline @ git+https://github.com/OpenChemistry/tomviz-pipeline"
 pip install --no-build-isolation --no-deps -U tomviz/tomviz/python
 ```
 
@@ -67,5 +68,6 @@ bash tomviz/.github/workflows/scripts/build_tomviz.sh
 
 # Install runtime dependencies
 conda install -y --override-channels -c conda-forge --file tomviz/.github/workflows/runtime_requirements.txt
+pip install --no-build-isolation --no-deps -U "tomviz-pipeline @ git+https://github.com/OpenChemistry/tomviz-pipeline"
 pip install --no-build-isolation --no-deps -U tomviz/tomviz/python
 ```

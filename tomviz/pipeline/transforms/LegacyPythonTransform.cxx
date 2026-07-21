@@ -501,14 +501,16 @@ QMap<QString, PortData> LegacyPythonTransform::transform(
     // importing it; preload it as legacy/OperatorPython.cxx does.
     py::module_::import("tomviz.utils");
 
-    // Wrap the copied vtkImageData in a LegacyDataset — v1 operators
-    // expect dataset.create_child_dataset() to be available.
-    py::module_ datasetMod =
-      py::module_::import("tomviz.internal_dataset");
-    py::object datasetCls = datasetMod.attr("LegacyDataset");
-    py::object dataset =
-      datasetCls(py::cast(static_cast<vtkImageData*>(outputImage.Get()),
-                          py::return_value_policy::reference));
+    // Wrap the copied vtkImageData in a numpy-backed LegacyDataset
+    // (tomviz_pipeline) — v1 operators expect the
+    // dataset.create_child_dataset() API. The wrapper's arrays are
+    // views over the VTK buffers; replaced arrays and metadata are
+    // flushed back after the transform runs.
+    py::module_ boundary = py::module_::import("tomviz._boundary");
+    py::object dataset = boundary.attr("wrap_vtk_image")(
+      py::cast(static_cast<vtkImageData*>(outputImage.Get()),
+               py::return_value_policy::reference),
+      /*legacy=*/true);
 
     py::object scriptModule =
       PythonNodeUtils::loadScriptAsModule(m_operatorName, m_script);
@@ -567,7 +569,11 @@ QMap<QString, PortData> LegacyPythonTransform::transform(
         PythonNodeUtils::qvariantToPython(it.value());
     }
 
-    // Wrap dataset input ports as LegacyDataset kwargs
+    // Wrap dataset input ports as LegacyDataset kwargs. As before the
+    // numpy switch, these wrap the port's image directly (no copy);
+    // they are flushed after the call so replaced arrays land in the
+    // same image in-place mutations already reached through the views.
+    py::list wrappedInputs;
     for (const auto& dsName : m_datasetInputNames) {
       auto it = inputs.find(dsName);
       if (it == inputs.end()) {
@@ -577,10 +583,12 @@ QMap<QString, PortData> LegacyPythonTransform::transform(
       if (!dsVolume || !dsVolume->isValid()) {
         continue;
       }
-      py::object dsObj = datasetCls(
+      py::object dsObj = boundary.attr("wrap_vtk_image")(
         py::cast(dsVolume->imageData(),
-                 py::return_value_policy::reference));
+                 py::return_value_policy::reference),
+        /*legacy=*/true);
       kwargs[py::str(dsName.toStdString())] = dsObj;
+      wrappedInputs.append(dsObj);
     }
 
     // Route through transform_method_wrapper so that
@@ -605,6 +613,15 @@ QMap<QString, PortData> LegacyPythonTransform::transform(
       transformFunc, py::str(opSerialized.toStdString()),
       dataset, **kwargs);
 
+    // Flush replaced arrays / metadata from the numpy datasets back
+    // into their backing vtkImageData (in-place mutations are already
+    // there via the views).
+    boundary.attr("flush_dataset")(dataset);
+    for (auto wrapped : wrappedInputs) {
+      boundary.attr("flush_dataset")(
+        py::reinterpret_borrow<py::object>(wrapped));
+    }
+
     // Determine the output vtkImageData.
     // Default: outputImage (deep copy of input, modified in-place by Python).
     vtkSmartPointer<vtkImageData> outputData = outputImage.Get();
@@ -616,12 +633,12 @@ QMap<QString, PortData> LegacyPythonTransform::transform(
       py::dict outputDict = pyResult.cast<py::dict>();
       std::string childKey = m_childName.toStdString();
       if (outputDict.contains(childKey)) {
-        py::object childObj = outputDict[py::str(childKey)];
-        if (py::hasattr(childObj, "_data_object")) {
-          py::object dataObj = childObj.attr("_data_object");
+        py::object childObj =
+          boundary.attr("payload_to_vtk")(outputDict[py::str(childKey)]);
+        if (!childObj.is_none()) {
           auto* childImage = vtkImageData::SafeDownCast(
             vtkPythonUtil::GetPointerFromObject(
-              dataObj.ptr(), "vtkObjectBase"));
+              childObj.ptr(), "vtkObjectBase"));
           if (childImage) {
             outputData = childImage;
           }
@@ -649,7 +666,8 @@ QMap<QString, PortData> LegacyPythonTransform::transform(
                    qPrintable(m_resultNames[i]));
           continue;
         }
-        py::object pyObj = outputDict[py::str(key)];
+        py::object pyObj =
+          boundary.attr("payload_to_vtk")(outputDict[py::str(key)]);
         if (pyObj.is_none()) {
           continue;
         }

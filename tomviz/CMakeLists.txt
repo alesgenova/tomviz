@@ -673,20 +673,21 @@ foreach(file ${template_files})
     COMPONENT runtime)
 endforeach()
 
+# The generic pipeline engine lives in the external tomviz-pipeline
+# package (import name tomviz_pipeline), installed alongside this
+# package's Python dependencies. Only the app-side layer is staged here.
 set(tomviz_python_modules
   __init__.py
+  _boundary.py
   _internal.py
   dataset.py
-  external_dataset.py
   fix_pdb.py
   nodes.py
   operators.py
-  internal_dataset.py
   internal_utils.py
   itkutils.py
   utils.py
   web.py
-  modules.py
 )
 
 file(MAKE_DIRECTORY "${tomviz_python_binary_dir}/tomviz")
@@ -754,15 +755,6 @@ foreach(file ${tomviz_python_ptycho_modules})
   execute_process(COMMAND ${CMAKE_COMMAND} -E ${script_cmd}
     "${tomviz_SOURCE_DIR}/tomviz/python/tomviz/ptycho/${file}"
     "${tomviz_python_binary_dir}/tomviz/ptycho/${file}")
-endforeach()
-
-file(GLOB tomviz_python_state_modules "${tomviz_SOURCE_DIR}/tomviz/python/tomviz/state/*.py")
-file(MAKE_DIRECTORY "${tomviz_python_binary_dir}/tomviz/state")
-foreach(file_ ${tomviz_python_state_modules})
-  get_filename_component(file ${file_} NAME)
-  execute_process(COMMAND ${CMAKE_COMMAND} -E ${script_cmd}
-    "${tomviz_SOURCE_DIR}/tomviz/python/tomviz/state/${file}"
-    "${tomviz_python_binary_dir}/tomviz/state/${file}")
 endforeach()
 
 # Autodiscover python reader/writers added to tomviz/python/tomviz/io/formats

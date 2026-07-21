@@ -157,9 +157,14 @@ PortData pythonValueToPortData(py::object pyValue, OutputPort* port)
   if (!port || pyValue.is_none()) {
     return PortData();
   }
-  py::object dataObj = pyValue;
-  if (py::hasattr(pyValue, "_data_object")) {
-    dataObj = pyValue.attr("_data_object");
+  // Library payloads (tomviz_pipeline Dataset / Table / Molecule) are
+  // converted to their VTK counterparts here — the single boundary for
+  // declared outputs and live-preview (progress.data) payloads alike.
+  // VTK objects pass through payload_to_vtk untouched.
+  py::object dataObj =
+    py::module_::import("tomviz._boundary").attr("payload_to_vtk")(pyValue);
+  if (dataObj.is_none()) {
+    return PortData();
   }
   void* raw =
     vtkPythonUtil::GetPointerFromObject(dataObj.ptr(), "vtkObjectBase");

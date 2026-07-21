@@ -4,10 +4,10 @@ ENV LC_ALL=C.UTF-8
 ENV LANG=C.UTF-8
 ENV PYTHONUNBUFFERED=ON
 
-COPY tomviz/python/ /tmp/python/
-
-RUN pip install /tmp/python/ && \
-  rm -rf /tmp/python/
+# The pipeline runtime is the standalone tomviz-pipeline package
+# (TODO: switch to PyPI once published). scipy is not a dependency of
+# the engine but is widely used by operator scripts.
+RUN pip install "tomviz-pipeline @ git+https://github.com/OpenChemistry/tomviz-pipeline" scipy
 
 ENTRYPOINT ["tomviz-pipeline"]
 

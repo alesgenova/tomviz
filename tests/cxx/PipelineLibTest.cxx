@@ -1728,6 +1728,378 @@ class MultiplyBy(tomviz.nodes.TransformNode):
   EXPECT_NEAR(outputRange[1], inputRange[1] * 2.0, 0.01);
 }
 
+TEST_F(PipelinePythonTest, ThreadedExecutorLegacyPythonTransform)
+{
+  // Mirror the application: the transform's Python code runs on a
+  // ThreadedExecutor worker thread while the main thread spins the
+  // event loop (which is also where intermediate updates land).
+  pipeline->setExecutor(new ThreadedExecutor(pipeline));
+
+  QString pythonDir = TOMVIZ_PYTHON_DIR;
+  QString jsonStr = readFile(pythonDir + "/AddConstant.json");
+  QString scriptStr = readFile(pythonDir + "/AddConstant.py");
+  ASSERT_FALSE(jsonStr.isEmpty());
+  ASSERT_FALSE(scriptStr.isEmpty());
+
+  auto* source = new SphereSource();
+  source->setDimensions(8, 8, 8);
+  pipeline->addNode(source);
+  source->execute();
+  auto inputRange =
+    source->outputPort("volume")->data().value<VolumeDataPtr>()
+      ->scalarRange();
+
+  auto* transform = new LegacyPythonTransform();
+  transform->setJSONDescription(jsonStr);
+  transform->setScript(scriptStr);
+  transform->setParameter("constant", 10.0);
+  pipeline->addNode(transform);
+  pipeline->createLink(source->outputPort("volume"),
+                       transform->inputPort("volume"));
+
+  // The worker thread needs the GIL; release it from the test (main)
+  // thread for the duration of the run, as the application does after
+  // initializing Python.
+  py::gil_scoped_release releaseGil;
+
+  auto* future = pipeline->execute();
+  QSignalSpy spy(future, &ExecutionFuture::finished);
+  if (!future->isFinished()) {
+    ASSERT_TRUE(spy.wait(30000));
+  }
+
+  EXPECT_TRUE(future->succeeded());
+  EXPECT_EQ(transform->state(), NodeState::Current);
+  auto outputData =
+    transform->outputPort("volume")->data().value<VolumeDataPtr>();
+  ASSERT_TRUE(outputData && outputData->isValid());
+  auto outputRange = outputData->scalarRange();
+  EXPECT_NEAR(outputRange[0], inputRange[0] + 10.0, 0.01);
+  EXPECT_NEAR(outputRange[1], inputRange[1] + 10.0, 0.01);
+
+  // Re-execute once more (the app re-runs transforms on parameter
+  // edits) to shake out lifetime bugs across runs.
+  transform->setParameter("constant", 20.0);
+  transform->markStale();
+  auto* future2 = pipeline->execute();
+  QSignalSpy spy2(future2, &ExecutionFuture::finished);
+  if (!future2->isFinished()) {
+    ASSERT_TRUE(spy2.wait(30000));
+  }
+  EXPECT_TRUE(future2->succeeded());
+}
+
+TEST_F(PipelinePythonTest, ThreadedExecutorReconStyleOperator)
+{
+  // The full recon-operator shape on the threaded executor: a v1
+  // class-based operator that creates a child dataset, publishes
+  // intermediate previews through progress.data while running, and
+  // returns the child as its declared output. This is the most
+  // Python↔VTK-boundary-intensive path the application exercises.
+  pipeline->setExecutor(new ThreadedExecutor(pipeline));
+
+  QString jsonStr = R"({
+    "name": "MiniRecon",
+    "label": "Mini Recon",
+    "children": [{"name": "recon", "label": "Reconstruction"}]
+  })";
+  QString scriptStr = R"(
+import numpy as np
+import tomviz.operators
+
+
+class MiniReconOperator(tomviz.operators.CancelableOperator):
+
+    def transform(self, dataset):
+        self.progress.maximum = 4
+        child = dataset.create_child_dataset()
+        recon = np.zeros((6, 6, 6), dtype=np.float32)
+        for i in range(4):
+            if self.canceled:
+                return
+            recon += float(i + 1)
+            child.set_scalars('recon', recon.copy())
+            self.progress.value = i + 1
+            self.progress.message = 'pass %d' % (i + 1)
+            self.progress.data = child
+        return {'recon': child}
+)";
+
+  auto* source = new SphereSource();
+  source->setDimensions(6, 6, 6);
+  pipeline->addNode(source);
+  source->execute();
+
+  auto* transform = new LegacyPythonTransform();
+  transform->setJSONDescription(jsonStr);
+  transform->setScript(scriptStr);
+  pipeline->addNode(transform);
+  pipeline->createLink(source->outputPort("volume"),
+                       transform->inputPort("volume"));
+
+  // The "children" declaration renames the primary output port.
+  auto* outPort = transform->outputPort("recon");
+  ASSERT_TRUE(outPort != nullptr);
+  int intermediateCount = 0;
+  QObject::connect(outPort, &OutputPort::intermediateDataApplied,
+                   [&intermediateCount]() { ++intermediateCount; });
+
+  py::gil_scoped_release releaseGil;
+
+  for (int run = 0; run < 2; ++run) {
+    auto* future = pipeline->execute();
+    QSignalSpy spy(future, &ExecutionFuture::finished);
+    if (!future->isFinished()) {
+      ASSERT_TRUE(spy.wait(30000));
+    }
+    EXPECT_TRUE(future->succeeded());
+    EXPECT_EQ(transform->state(), NodeState::Current);
+
+    auto outputData = outPort->data().value<VolumeDataPtr>();
+    ASSERT_TRUE(outputData && outputData->isValid());
+    // 1+2+3+4 accumulated into every voxel.
+    auto range = outputData->scalarRange();
+    EXPECT_NEAR(range[0], 10.0, 1e-4);
+    EXPECT_NEAR(range[1], 10.0, 1e-4);
+
+    transform->markStale();
+  }
+
+  EXPECT_EQ(transform->totalProgressSteps(), 4);
+  EXPECT_EQ(transform->progressStep(), 4);
+  EXPECT_GE(intermediateCount, 8);
+}
+
+TEST_F(PipelinePythonTest, ThreadedExecutorMultiArrayOperator)
+{
+  // Multi-array volume through an @apply_to_each_array operator on the
+  // threaded executor: apply_to_each_array deep-copies the dataset once
+  // per array, so a naive backing-image reference gets cloned into a
+  // pile of VTK objects that are then destroyed during Python GC on the
+  // worker thread. This reproduces the in-app SIGSEGV.
+  pipeline->setExecutor(new ThreadedExecutor(pipeline));
+
+  QString jsonStr = readFile(QString(TOMVIZ_PYTHON_DIR) +
+                             "/AddConstant.json");
+  // Inline AddConstant-shaped operator that also cranks the cyclic GC
+  // to its most aggressive setting, so any object corrupted by the
+  // Python↔VTK boundary is tripped over deterministically rather than
+  // "sometimes, later".
+  QString scriptStr = R"(
+import gc
+gc.set_threshold(1, 1, 1)
+
+
+def transform(dataset, constant=0.0):
+    import numpy as np
+    scalars = dataset.active_scalars
+    dataset.active_scalars = scalars + np.array([constant], dtype=scalars.dtype)
+)";
+
+  // A source with THREE scalar arrays on its output volume.
+  auto* source = new SphereSource();
+  source->setDimensions(12, 12, 12);
+  pipeline->addNode(source);
+  source->execute();
+  {
+    auto vol = source->outputPort("volume")->data().value<VolumeDataPtr>();
+    ASSERT_TRUE(vol && vol->imageData());
+    auto* image = vol->imageData();
+    auto* pd = image->GetPointData();
+    auto* base = pd->GetScalars();
+    for (const char* name : { "Second", "Third" }) {
+      vtkNew<vtkFloatArray> extra;
+      extra->DeepCopy(base);
+      extra->SetName(name);
+      pd->AddArray(extra);
+    }
+  }
+  auto* transform = new LegacyPythonTransform();
+  transform->setJSONDescription(jsonStr);
+  transform->setScript(scriptStr);
+  transform->setParameter("constant", 10.0);
+  pipeline->addNode(transform);
+  pipeline->createLink(source->outputPort("volume"),
+                       transform->inputPort("volume"));
+
+  py::gil_scoped_release releaseGil;
+
+  for (int run = 0; run < 3; ++run) {
+    auto* future = pipeline->execute();
+    QSignalSpy spy(future, &ExecutionFuture::finished);
+    if (!future->isFinished()) {
+      ASSERT_TRUE(spy.wait(30000));
+    }
+    EXPECT_TRUE(future->succeeded());
+    EXPECT_EQ(transform->state(), NodeState::Current);
+    auto outputData =
+      transform->outputPort("volume")->data().value<VolumeDataPtr>();
+    ASSERT_TRUE(outputData && outputData->isValid());
+    // Every one of the three arrays got the constant added.
+    EXPECT_EQ(outputData->imageData()->GetPointData()->GetNumberOfArrays(),
+              3);
+    transform->markStale();
+  }
+}
+
+TEST_F(PipelinePythonTest, ThreadedExecutorPythonTransformV2)
+{
+  // Schema-v2 PythonTransform on the threaded executor — the path that
+  // crashes in-app (PythonNodeBackend::runImpl on a worker thread).
+  // Multi-array input + a downstream sink that consumes on the main
+  // thread, run several times, to mirror the application.
+  pipeline->setExecutor(new ThreadedExecutor(pipeline));
+
+  QString jsonStr = R"({
+    "schemaVersion": 2,
+    "name": "MultiplyBy",
+    "label": "Multiply By",
+    "inputs":  [{"name": "volume", "type": "ImageData"}],
+    "outputs": [{"name": "volume", "type": "ImageData", "persistent": true}],
+    "parameters": [{"name": "factor", "type": "double", "default": 1.0}]
+  })";
+  QString scriptStr = R"(
+import tomviz.nodes
+
+class MultiplyBy(tomviz.nodes.TransformNode):
+    def transform(self, inputs, factor=1.0):
+        ds = inputs["volume"]
+        for name in list(ds.scalars_names):
+            ds.set_scalars(name, ds.scalars(name) * factor)
+        return {"volume": ds}
+)";
+
+  auto* source = new SphereSource();
+  source->setDimensions(10, 10, 10);
+  pipeline->addNode(source);
+  source->execute();
+  {
+    auto vol = source->outputPort("volume")->data().value<VolumeDataPtr>();
+    auto* pd = vol->imageData()->GetPointData();
+    auto* base = pd->GetScalars();
+    for (const char* name : { "Second", "Third" }) {
+      vtkNew<vtkFloatArray> extra;
+      extra->DeepCopy(base);
+      extra->SetName(name);
+      pd->AddArray(extra);
+    }
+  }
+
+  auto* transform = new PythonTransform();
+  transform->setJSONDescription(jsonStr);
+  transform->setScript(scriptStr);
+  transform->setParameter("factor", 2.0);
+  pipeline->addNode(transform);
+  pipeline->createLink(source->outputPort("volume"),
+                       transform->inputPort("volume"));
+
+  py::gil_scoped_release releaseGil;
+
+  for (int run = 0; run < 5; ++run) {
+    auto* future = pipeline->execute();
+    QSignalSpy spy(future, &ExecutionFuture::finished);
+    if (!future->isFinished()) {
+      ASSERT_TRUE(spy.wait(30000));
+    }
+    EXPECT_TRUE(future->succeeded());
+    EXPECT_EQ(transform->state(), NodeState::Current);
+    auto outputData =
+      transform->outputPort("volume")->data().value<VolumeDataPtr>();
+    ASSERT_TRUE(outputData && outputData->isValid());
+    transform->markStale();
+  }
+}
+
+TEST_F(PipelinePythonTest, PythonTransformV2ProgressUpdates)
+{
+  // Progress plumbing end to end on the numpy-dataset path: the script
+  // reports step count / value / message through self.progress, and
+  // publishes a live-preview payload — a fresh numpy Dataset — through
+  // self.progress.data. The preview must be converted to vtkImageData
+  // at the script boundary and applied to the output port as
+  // intermediate data while the transform is still running.
+  QString jsonStr = R"({
+    "schemaVersion": 2,
+    "name": "SlowMultiply",
+    "label": "Slow Multiply",
+    "inputs":  [{"name": "volume", "type": "ImageData"}],
+    "outputs": [{"name": "volume", "type": "ImageData", "persistent": true}],
+    "parameters": [
+      {"name": "factor", "type": "double", "default": 1.0}
+    ]
+  })";
+  QString scriptStr = R"(
+import tomviz.nodes
+import numpy as np
+
+class SlowMultiply(tomviz.nodes.TransformNode):
+    def transform(self, inputs, factor=1.0):
+        ds = inputs["volume"]
+        self.progress.maximum = 3
+        self.progress.value = 1
+        self.progress.message = "halfway"
+        preview = self.create_dataset()
+        preview.set_scalars("Scalars",
+                            np.full((2, 2, 2), 21.0, dtype=np.float32))
+        preview.spacing = (1.0, 1.0, 1.0)
+        self.progress.data = preview
+        self.progress.value = 2
+        ds.active_scalars = ds.active_scalars * factor
+        return {"volume": ds}
+)";
+
+  auto* source = new SphereSource();
+  source->setDimensions(4, 4, 4);
+  pipeline->addNode(source);
+  source->execute();
+  auto inputRange =
+    source->outputPort("volume")->data().value<VolumeDataPtr>()
+      ->scalarRange();
+
+  auto* transform = new PythonTransform();
+  transform->setJSONDescription(jsonStr);
+  transform->setScript(scriptStr);
+  transform->setParameter("factor", 2.0);
+  pipeline->addNode(transform);
+  pipeline->createLink(source->outputPort("volume"),
+                       transform->inputPort("volume"));
+
+  // Capture the live-preview payload the moment it is applied — the
+  // final output overwrites the port data afterwards.
+  auto* outPort = transform->outputPort("volume");
+  int intermediateCount = 0;
+  double intermediateValue = 0.0;
+  QObject::connect(outPort, &OutputPort::intermediateDataApplied,
+                   [&intermediateCount, &intermediateValue, outPort]() {
+                     ++intermediateCount;
+                     auto vol = outPort->data().value<VolumeDataPtr>();
+                     if (vol && vol->isValid()) {
+                       intermediateValue = vol->scalarRange()[0];
+                     }
+                   });
+
+  auto* future = pipeline->execute();
+  EXPECT_TRUE(future->isFinished());
+  EXPECT_EQ(transform->state(), NodeState::Current);
+
+  // Step-count / value / message reached the node.
+  EXPECT_EQ(transform->totalProgressSteps(), 3);
+  EXPECT_EQ(transform->progressStep(), 2);
+  EXPECT_EQ(transform->progressMessage(), "halfway");
+
+  // The preview Dataset was converted and applied exactly once, with
+  // the constant payload the script produced.
+  EXPECT_EQ(intermediateCount, 1);
+  EXPECT_NEAR(intermediateValue, 21.0, 1e-5);
+
+  // And the final output still reflects the real transform result.
+  auto outputData = outPort->data().value<VolumeDataPtr>();
+  ASSERT_TRUE(outputData && outputData->isValid());
+  auto outputRange = outputData->scalarRange();
+  EXPECT_NEAR(outputRange[0], inputRange[0] * 2.0, 0.01);
+  EXPECT_NEAR(outputRange[1], inputRange[1] * 2.0, 0.01);
+}
+
 TEST_F(PipelinePythonTest, PythonTransformV2DefaultsToTransformNodeDefault)
 {
   // Schema-v2 convention: an omitted `persistent` field defers to the
@@ -1785,19 +2157,14 @@ TEST_F(PipelinePythonTest, PythonSourceV2)
   QString scriptStr = R"(
 import tomviz.nodes
 import numpy as np
-from vtk import vtkImageData
-from vtk.util.numpy_support import numpy_to_vtk
-from tomviz.internal_dataset import Dataset
 
 class ConstantVolume(tomviz.nodes.SourceNode):
     def produce(self, value=0.0):
-        img = vtkImageData()
-        img.SetDimensions(3, 3, 3)
-        arr = np.full((3, 3, 3), value, dtype=np.float32).ravel(order='F')
-        vtk_arr = numpy_to_vtk(arr, deep=True)
-        vtk_arr.SetName("Scalars")
-        img.GetPointData().SetScalars(vtk_arr)
-        return {"volume": Dataset(img)}
+        ds = self.create_dataset()
+        ds.set_scalars("Scalars", np.full((3, 3, 3), value,
+                                          dtype=np.float32))
+        ds.spacing = (1.0, 1.0, 1.0)
+        return {"volume": ds}
 )";
 
   auto* source = new PythonSource();
